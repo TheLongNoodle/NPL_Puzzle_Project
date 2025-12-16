@@ -4,23 +4,43 @@ import socket
 import threading
 import json
 import time
+import logging # <-- NEW IMPORT
 
 # --- CLIENT IMPORTS ---
 try:
     from client_Human import SlidingPuzzle as HumanPuzzle
     from client_Computer import SlidingPuzzle as ComputerPuzzle
 except ImportError as e:
-    print(f"CRITICAL ERROR: Could not import client files. {e}")
+    # Use logging instead of print for errors in the server context
+    logging.critical(f"CRITICAL ERROR: Could not import client files. {e}")
     # Dummy classes to prevent immediate crash if files are missing
     class HumanPuzzle:
-        def __init__(self, parent): print("Human Client Missing")
+        def __init__(self, parent): logging.info("Human Client Missing")
     class ComputerPuzzle:
-        def __init__(self, parent): print("Computer Client Missing")
+        def __init__(self, parent): logging.info("Computer Client Missing")
 
 # Configuration
 HOST = '127.0.0.1'
 PORT = 65432
 MAX_BYTES = 1024
+
+# --- Logging Setup ---
+# A custom handler to direct log records to the Tkinter scrolled text widget
+class TkinterLogHandler(logging.Handler):
+    def __init__(self, view_instance):
+        super().__init__()
+        self.view = view_instance
+        self.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+
+    def emit(self, record):
+        msg = self.format(record)
+        # We need to use a thread-safe method to update the Tkinter GUI.
+        # This uses the View's existing log function.
+        self.view.log_gui(msg)
+
+# Set up the basic logging configuration
+logging.basicConfig(level=logging.INFO, 
+                    format='%(asctime)s - %(threadName)s - %(levelname)s: %(message)s')
 
 class ServerModel:
     """
@@ -47,6 +67,7 @@ class ServerModel:
                 self.stats[client_type]['games'] += 1
                 self.stats[client_type]['moves'].append(moves)
                 self.stats[client_type]['time'].append(time_taken)
+
 
     def get_formatted_stats(self):
         with self.lock:
@@ -98,7 +119,7 @@ class ServerView:
         self.btn_human.pack(pady=5)
 
         self.btn_comp = tk.Button(btn_frame, text="New Computer Player", width=20,
-                                  command=lambda: controller.launch_client('computer'))
+                                 command=lambda: controller.launch_client('computer'))
         self.btn_comp.pack(pady=5)
 
         self.btn_stats = tk.Button(btn_frame, text="Show Statistics", width=20,
@@ -109,9 +130,14 @@ class ServerView:
         tk.Label(root, text="Server Log:", anchor="w").pack(fill="x", padx=10)
         self.log_area = scrolledtext.ScrolledText(root, height=10, state='disabled')
         self.log_area.pack(padx=10, pady=5, fill="both", expand=True)
+        
+        # Add the custom handler to the root logger
+        self.log_handler = TkinterLogHandler(self)
+        logging.getLogger().addHandler(self.log_handler)
 
-    def log(self, message):
-        """Thread-safe logging to the GUI"""
+
+    def log_gui(self, message): # RENAMED the function to avoid conflict/confusion
+        """Thread-safe logging to the GUI from the log handler."""
         self.log_area.config(state='normal')
         self.log_area.insert(tk.END, message + "\n")
         self.log_area.see(tk.END)
@@ -130,7 +156,7 @@ class ServerController:
     """
     def __init__(self, root):
         self.model = ServerModel()
-        self.view = ServerView(root, self)
+        self.view = ServerView(root, self) # View initialization sets up the log handler
         self.root = root
         self.running = True
 
@@ -144,7 +170,8 @@ class ServerController:
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.bind((HOST, PORT))
             self.server_socket.listen(5)
-            self.view.log(f"[START] Server listening on {HOST}:{PORT}")
+            # Use logging.info
+            logging.info(f"Server listening on {HOST}:{PORT}") 
             
             while self.running:
                 try:
@@ -152,16 +179,19 @@ class ServerController:
                     client_handler = threading.Thread(target=self.handle_client_connection, args=(conn, addr))
                     client_handler.start()
                 except OSError:
+                    # Expected error when closing the socket server
                     break
         except Exception as e:
-            self.view.log(f"[ERROR] Socket Server failed: {e}")
+            # Use logging.error
+            logging.error(f"Socket Server failed: {e}")
 
     def handle_client_connection(self, conn, addr):
         """Communicates with a connected client."""
         client_type = None
         try:
             with conn:
-                self.view.log(f"[CONN] Connection from {addr}")
+                # Use logging.info
+                logging.info(f"Connection established with {addr}")
                 
                 while True:
                     data = conn.recv(MAX_BYTES)
@@ -174,11 +204,13 @@ class ServerController:
                         
                         if msg_type == 'connect':
                             client_type = msg.get('client_type')
-                            self.view.log(f"[INFO] {client_type.capitalize()} Client connected.")
+                            # Use logging.info
+                            logging.info(f"{client_type.capitalize()} Client connected.")
                             self.model.set_client_active(client_type, True)
 
                         elif msg_type == 'log':
-                            self.view.log(f"[{client_type.upper()}] {msg.get('msg')}")
+                            # Use logging.info for client messages
+                            logging.info(f"[{client_type.upper()}] {msg.get('msg')}")
 
                         elif msg_type == 'stats':
                             self.model.update_stats(
@@ -187,19 +219,23 @@ class ServerController:
                                 msg.get('time'), 
                                 msg.get('solved')
                             )
-                            self.view.log(f"[STATS] Stats received from {client_type}")
+                            # Use logging.info
+                            logging.info(f"Stats received from {client_type}")
 
                         elif msg_type == 'disconnect':
-                            self.view.log(f"[INFO] {client_type.capitalize()} Client disconnected.")
+                            # Use logging.info
+                            logging.info(f"{client_type.capitalize()} Client disconnected.")
                             if client_type:
                                 self.model.set_client_active(client_type, False)
                             break
                             
                     except json.JSONDecodeError:
-                        self.view.log(f"[ERR] Invalid JSON received")
+                        # Use logging.warning for malformed messages
+                        logging.warning(f"Invalid JSON received from {addr}")
                         
         except Exception as e:
-            self.view.log(f"[ERR] Connection error: {e}")
+            # Use logging.error
+            logging.error(f"Connection error with {addr}: {e}")
         finally:
             if client_type:
                 self.model.set_client_active(client_type, False)
@@ -216,7 +252,8 @@ class ServerController:
 
         # 2. Set Active Flag
         self.model.set_client_active(client_type, True)
-        self.view.log(f"[LAUNCH] Starting {client_type} client...")
+        # Use logging.info
+        logging.info(f"Starting {client_type} client...")
 
         # 3. Define wrapper to create a new Root for the thread and pass it to the class
         def run_client_wrapper(c_type):
@@ -235,8 +272,8 @@ class ServerController:
                 client_root.mainloop()
 
             except Exception as e:
-                self.view.log(f"[ERROR] Failed to launch {c_type}: {e}")
-                print(e)
+                # Use logging.error
+                logging.error(f"Failed to launch {c_type}: {e}")
             finally:
                 # Ensure flag is reset if it crashes or closes unexpectedly
                 self.model.set_client_active(c_type, False)
@@ -250,9 +287,13 @@ class ServerController:
         self.view.show_alert("Game Statistics", stats_text)
 
     def on_close(self):
+        # Use logging.info
+        logging.info("Shutting down server.")
         self.running = False
         try:
-            self.server_socket.close()
+            # To unblock the server_socket.accept() call
+            # We must close the socket
+            self.server_socket.close() 
         except:
             pass
         self.root.destroy()
