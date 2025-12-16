@@ -116,6 +116,7 @@ class SlidingPuzzle:
         self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
         self.save_state()
         self.draw_board()
+        self.move_count = 0
         logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
@@ -137,6 +138,7 @@ class SlidingPuzzle:
         self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
         self.save_state()
         self.draw_board()
+        self.move_count = 0
         logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
