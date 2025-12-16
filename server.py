@@ -7,7 +7,7 @@ import time
 
 # --- CLIENT IMPORTS ---
 try:
-    from client_Human import SlidingPuzzle as HumanPuzzle
+    from client_Human import SlidingPuzzleController as HumanPuzzle
     from client_Computer import SlidingPuzzle as ComputerPuzzle
 except ImportError as e:
     print(f"CRITICAL ERROR: Could not import client files. {e}")
