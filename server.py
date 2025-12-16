@@ -2,8 +2,8 @@ import tkinter as tk
 from tkinter import scrolledtext
 import logging
 import threading
-from client_Human import SlidingPuzzle
-from client_Computer import SlidingPuzzle
+from client_Human import SlidingPuzzle as HumanPuzzle
+from client_Computer import SlidingPuzzle as ComputerPuzzle
 
 _human_window_instance = None
 _computer_window_instance = None
@@ -33,8 +33,8 @@ class MainWindow:
                   command=self.open_human).pack(pady=3)
         tk.Button(frame, text="Computer Client", width=20,
                   command=self.open_computer).pack(pady=3)
-        tk.Button(frame, text="Show Statistics", width=20,
-                  command=self.open_stats).pack(pady=3)
+        # tk.Button(frame, text="Show Statistics", width=20,
+        #           command=self.open_stats).pack(pady=3)
         
         toggle_frame = tk.Frame(root)
         toggle_frame.pack(pady=5)
@@ -76,7 +76,7 @@ class MainWindow:
         win.title("Human Client")
         _human_window_instance = win
 
-        SlidingPuzzle(win, human_mode=True)
+        HumanPuzzle(win)
 
     def open_computer(self):
         global _computer_window_instance
@@ -91,7 +91,7 @@ class MainWindow:
         win.title("Computer Client")
         _computer_window_instance = win
 
-        SlidingPuzzle(win, human_mode=False)
+        ComputerPuzzle(win)
 
 if __name__ == "__main__":
     root = tk.Tk()

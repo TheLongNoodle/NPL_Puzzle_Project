@@ -49,7 +49,7 @@ class SlidingPuzzle:
         self.height_slider.grid(row=1, column=1)
 
         #generate buttons
-        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, sticky="ew", padx=5)
+        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2, sticky="ew", padx=5)
 
         #DEBUG
         #tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
@@ -110,6 +110,8 @@ class SlidingPuzzle:
         self.memento_stack.clear()
         self.redo_stack.clear()
         self.buttons.clear()
+        self.undo_button.config(state=tk.NORMAL)
+        self.redo_button.config(state=tk.NORMAL)
 
         self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
         self.save_state()
@@ -129,6 +131,8 @@ class SlidingPuzzle:
         self.memento_stack.clear()
         self.redo_stack.clear()
         self.buttons.clear()
+        self.undo_button.config(state=tk.NORMAL)
+        self.redo_button.config(state=tk.NORMAL)
 
         self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
         self.save_state()
@@ -338,382 +342,25 @@ class SlidingPuzzle:
             activebackground=get_tile_color(v2)
         )
 
-
-    # ==================== Solver (MODEL) ==================== #
-    def toggle_solver(self):
-        if self.solve_button.cget("text") == "Abort":
-            # Abort requested
-            logging.info("Abort requested")
-            self.abort_solver = True  # this will stop both solver and animation
-            return
-        else:
-            # Start solver
-            self.abort_solver = False
-            self.disable_buttons_for_solver()
-            self.solve_button.config(text="Abort")
-            self.solver_thread = threading.Thread(target=self.solve_puzzle, daemon=True)
-            self.solver_thread.start()
-
-    def disable_buttons_for_solver(self):
-        for row in self.buttons:
-            for btn in row:
-                btn.config(state=tk.DISABLED)
-        # Keep only Solve/Abort button enabled
-        for child in self.frame.winfo_children():
-            for widget in child.winfo_children():
-                if isinstance(widget, tk.Button) and widget != self.solve_button:
-                    widget.config(state=tk.DISABLED)
-
-    def enable_all_buttons(self):
-        # Re-enable board buttons with move commands for non-human mode
-        for r in range(self.height):
-            for c in range(self.width):
-                self.buttons[r][c].config(state=tk.NORMAL, command=lambda rr=r, cc=c: self.move(rr, cc))
-        
-        # Enable control buttons
-        for child in self.frame.winfo_children():
-            for widget in child.winfo_children():
-                if isinstance(widget, tk.Button):
-                    widget.config(state=tk.NORMAL)
-        self.solve_button.config(text="Solve")
-
-    def solve_puzzle_astar(self, board):
-        width = len(board[0])
-        height = len(board)
-        start = tuple(sum(board, []))
-        target = tuple(list(range(1, width*height)) + [0])
-
-        def manhattan(state):
-            dist = 0
-            for idx, val in enumerate(state):
-                if val == 0: 
-                    continue
-                goal_r, goal_c = divmod(val-1, width)
-                r, c = divmod(idx, width)
-                dist += abs(r - goal_r) + abs(c - goal_c)
-            return dist
-
-        visited = set()
-        heap = [(manhattan(start), 0, start, [])]  # f, g, state, moves
-        directions = [("DOWN", 1, 0), ("UP", -1, 0), ("RIGHT", 0, 1), ("LEFT", 0, -1)]
-
-        while heap:
-            # Check for abort signal
-            if self.abort_solver:
-                return None
-            
-            f, g, state, path = heapq.heappop(heap)
-            if state == target:
-                return path
-
-            if state in visited:
-                continue
-            visited.add(state)
-
-            zero_idx = state.index(0)
-            r, c = divmod(zero_idx, width)
-            for name, dr, dc in directions:
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < height and 0 <= nc < width:
-                    new_idx = nr*width + nc
-                    new_state = list(state)
-                    new_state[zero_idx], new_state[new_idx] = new_state[new_idx], new_state[zero_idx]
-                    heapq.heappush(heap, (g+1 + manhattan(new_state), g+1, tuple(new_state), path + [name]))
-
-    def solve_puzzle_human(self, board):
-        # ---- init ---- #
-        board_copy = deepcopy(board)
-        prev = (-1, -1)
-        repeat_count = 0
-
-        # ---- helper functions ---- #
-
-        def find_tile(value):
-            for r in range(len(board_copy)):
-                for c in range(len(board_copy[0])):
-                    if board_copy[r][c] == value:
-                        return r, c
-            return None
-
-        def move_copy(br, bc, move):
-            if move == "UP":
-                board_copy[br][bc], board_copy[br-1][bc] = board_copy[br-1][bc], board_copy[br][bc]
-            elif move == "DOWN":
-                board_copy[br][bc], board_copy[br+1][bc] = board_copy[br+1][bc], board_copy[br][bc]
-            elif move == "LEFT":
-                board_copy[br][bc], board_copy[br][bc-1] = board_copy[br][bc-1], board_copy[br][bc]
-            elif move == "RIGHT":
-                board_copy[br][bc], board_copy[br][bc+1] = board_copy[br][bc+1], board_copy[br][bc]
-
-        def move_blank(target_r, target_c, tile_r, tile_c):
-            nonlocal prev, repeat_count
-            if prev == (tile_r, tile_c):
-                repeat_count += 1
-                if repeat_count >= 50:
-                    raise Exception(f"Stuck in loop at tile {tile_r},{tile_c}")
-            else:
-                prev = (tile_r, tile_c)
-                repeat_count = 0
-            start_r, start_c = find_tile(0)
-            rows = len(board_copy)
-            cols = len(board_copy[0])
-
-            # Directions: (dr, dc, name)
-            DIRS = [
-                (-1, 0, "UP"),
-                (1, 0, "DOWN"),
-                (0, -1, "LEFT"),
-                (0, 1, "RIGHT")
-            ]
-            
-            logging.debug((tile_r, tile_c))
-
-            # BFS queue: (r, c, path_so_far)
-            q = deque()
-            q.append((start_r, start_c, []))
-            visited = set([(start_r, start_c)])
-
-            while q:
-                r, c, path = q.popleft()
-
-                # Found target → apply moves to board_copy
-                if (r, c) == (target_r, target_c):
-                    # Execute moves on board_copy
-                    for move in path:
-                        if move == "UP":
-                            nr, nc = r+1, c
-                        elif move == "DOWN":
-                            nr, nc = r-1, c
-                        elif move == "LEFT":
-                            nr, nc = r, c+1
-                        elif move == "RIGHT":
-                            nr, nc = r, c-1
-
-                        # Actually swap (do forward-looking swap)
-                        br, bc = find_tile(0)
-                        move_copy(br, bc, move)
-
-                    return path
-
-                # Explore neighbors
-                for dr, dc, name in DIRS:
-                    nr, nc = r + dr, c + dc
-
-                    if 0 <= nr < rows and 0 <= nc < cols:
-                        if (nr, nc) not in completed and (nr, nc) != (tile_r, tile_c) and (nr, nc) not in visited:
-                            visited.add((nr, nc))
-                            q.append((nr, nc, path + [name]))
-            return []
-
-        def move_tile_to(tile_value, target_r, target_c):
-            blank_r, blank_c = find_tile(0)
-            moves = []
-
-            tile_r, tile_c = -1, -1
-
-            while(tile_r != target_r or tile_c != target_c):
-
-                tile_r, tile_c = find_tile(tile_value)
-                # Move tile horizontally
-                if tile_c > target_c:
-                    moves += move_blank(tile_r, tile_c-1, tile_r, tile_c)
-                    blank_r, blank_c = find_tile(0)
-                    moves.append("RIGHT")
-                    move_copy(blank_r, blank_c, "RIGHT")
-                if tile_c < target_c:
-                    moves += move_blank(tile_r, tile_c+1, tile_r, tile_c)
-                    blank_r, blank_c = find_tile(0)
-                    moves.append("LEFT")
-                    move_copy(blank_r, blank_c, "LEFT")
-
-                tile_r, tile_c = find_tile(tile_value)
-                # Move tile vertically
-                if tile_r > target_r:
-                    moves += move_blank(tile_r-1, tile_c, tile_r, tile_c)
-                    blank_r, blank_c = find_tile(0)
-                    moves.append("DOWN")
-                    move_copy(blank_r, blank_c, "DOWN")
-                if tile_r < target_r:
-                    moves += move_blank(tile_r+1, tile_c, tile_r, tile_c)
-                    blank_r, blank_c = find_tile(0)
-                    moves.append("UP")
-                    move_copy(blank_r, blank_c, "UP")
-            return moves
-
-        def is_bottom_right_correct(board):
-            h = self.height
-            w = self.width
-
-            if h < 3 or w < 3:
-                raise ValueError("Board must be at least 3x3 for a bottom-right subgrid check.")
-
-            # Extract bottom-right 3×3 region
-            subgrid = [row[w-3:] for row in board[h-3:]]
-
-            # Flatten
-            flat = [v for row in subgrid for v in row]
-
-            # Compute expected numbers in that 3×3 region
-            target_numbers = []
-            for r in range(h - 3, h):
-                for c in range(w - 3, w):
-                    # Convert row/col to tile number:
-                    # tile = r * width + c + 1  (mod total tiles)
-                    target_numbers.append((r * w + c + 1) % (w * h))
-
-            return sorted(flat) == sorted(target_numbers)
-
-
-        # ---- main logic ---- #
-        self.draw_board()
-        moves = []
-        completed = []
-        for num, isRow in self.traversal(self.width, self.height)[:-1]:
-            target_r = (num - 1) // self.width
-            target_c = (num - 1) % self.width
-            logging.debug(completed)
-            try:
-                # Break condition for bottom-right 3x3
-                if target_r == self.height - 3 and target_c == self.width - 3:
-                    break
-
-                # one before last in row
-                if target_c == self.width - 2 and isRow:
-                    target_c += 1
-                    if board_copy[target_r][target_c] == num+1:
-                        moves += move_tile_to(num+1, target_r+2, target_c)
-                    moves += move_tile_to(num, target_r, target_c)
-                    if find_tile(0) == (target_r, target_c-1):
-                        blank_r, blank_c = find_tile(0)
-                        moves.append("DOWN")
-                        move_copy(blank_r, blank_c, "DOWN")
-                    if find_tile(0) == (target_r+1, target_c):
-                        blank_r, blank_c = find_tile(0)
-                        moves.append("RIGHT")
-                        move_copy(blank_r, blank_c, "RIGHT")
-                # last in row
-                elif target_c == self.width  - 1 and isRow:
-                    target_r += 1
-                    moves += move_tile_to(num, target_r, target_c)
-                    moves += move_tile_to(num, target_r-1, target_c)
-                    completed.append((target_r-1, target_c))
-                    completed.append((target_r-1, target_c-1))
-                    isRow = False
-                # one before last in col
-                elif target_r == self.height - 2 and not isRow:
-                    target_r += 1
-                    if board_copy[target_r][target_c] == target_r * self.width + target_c + 1:
-                        moves += move_tile_to((target_r * self.width + target_c + 1), target_r, target_c+2)
-                    moves += move_tile_to(num, target_r, target_c)
-                    if find_tile(0) == (target_r, target_c+1):
-                        blank_r, blank_c = find_tile(0)
-                        moves.append("UP")
-                        move_copy(blank_r, blank_c, "UP")
-                    if find_tile(0) == (target_r-1, target_c):
-                        blank_r, blank_c = find_tile(0)
-                        moves.append("RIGHT")
-                        move_copy(blank_r, blank_c, "RIGHT")
-                # last in col
-                elif target_r == self.height - 1 and not isRow:
-                    target_c += 1
-                    moves += move_tile_to(num, target_r, target_c)
-                    moves += move_tile_to(num, target_r, target_c-1)
-                    completed.append((target_r, target_c-1))
-                    completed.append((target_r-1, target_c-1))
-                    isRow = True
-                # everything else
-                else:
-                    moves += move_tile_to(num, target_r, target_c)
-                    completed.append((target_r, target_c))
-            except Exception as e:
-                logging.debug("Algorithm anomaly avoided")
-
-        # Extract sub-board, normalize and send to A-star
-        br_start, bc_start = self.width - 3, self.height - 3
-        sub_board = [row[br_start:] for row in board_copy[bc_start:]]
-        flat = [v for row in sub_board for v in row]
-        unique_values = sorted(flat)
-        mapping = {val: i for i, val in enumerate(unique_values)}
-        normalized_sub_board = [[mapping[v] for v in row] for row in sub_board]
-        normalized_sub_board_flat = [v for row in normalized_sub_board for v in row]
-        if (self.is_solvable(normalized_sub_board_flat) and is_bottom_right_correct(board_copy)):
-            sub_moves = self.solve_puzzle_astar(normalized_sub_board)
-            if sub_moves is not None:
-                for move in sub_moves:
-                    blank_r, blank_c = find_tile(0)
-                    move_copy(blank_r, blank_c, move)
-                moves += sub_moves
-        else:
-            logging.debug("Sub-board unsolvable, performing reshuffle...")
-            completed = []
-            fix_moves = self.solve_puzzle_human(board_copy)
-            if fix_moves is not None:
-                for move in fix_moves:
-                    blank_r, blank_c = find_tile(0)
-                    moves.append(move)
-                    try:
-                        move_copy(blank_r, blank_c, move)
-                    except IndexError as e:
-                        logging.debug("Algorithm anomaly avoided")
-
-        return moves
-
-    def solve_puzzle(self):
-        logging.info("Solver started")
-        self.abort_solver = False
-        try:
-            # sloution mode
-            if getattr(self, 'strategic_var', None) and self.strategic_var.get():
-                moves = self.solve_puzzle_human(self.board)
-            else:
-                moves = self.solve_puzzle_astar(self.board)
-            # abort
-            if self.abort_solver or moves is None:
-                logging.info("Solver aborted")
-                self.parent.after(0, self.enable_all_buttons)
-            else:
-                logging.info("Solver finished")
-                self.parent.after(0, lambda: self.animate_solution(moves))
-        except Exception as e:
-            logging.error("Solver crashed: %s", e, exc_info=True)
-            self.parent.after(0, self.enable_all_buttons)
-
-    def animate_solution(self, moves):
-        if not moves or self.abort_solver:
-            logging.info("Animation stopped")
-            self.enable_all_buttons()
-            return
-
-        move = moves.pop(0)
-        self.perform_move(move)
-        
-        # If this was the last move, lock the board after animation completes
-        if not moves:
-            delay = self.speed_slider.get()
-            self.parent.after(delay, self.lock_board)
-        else:
-            delay = self.speed_slider.get()
-            self.parent.after(delay, lambda: self.animate_solution(moves))
-
     def is_solved_board(self, board = None):
         if board is None:
             board = self.board
         target = [[(i*self.width + j + 1) % (self.width*self.height) 
                    for j in range(self.width)] for i in range(self.height)]
         return board == target
-
+    
     def lock_board(self):
         for row in self.buttons:
             for btn in row:
                 btn.config(state=tk.DISABLED)
         self.undo_button.config(state=tk.DISABLED)
         self.redo_button.config(state=tk.DISABLED)
-
-    def log_board(self, board = None):
-        if board is None:
-            board = self.board
-        board_str = "\n".join(["\t".join(f"{val:2}" for val in row) for row in board])
-        logging.info("Current board:\n%s", board_str)
+        # Re-enable control buttons and reset solve button
+        self.solve_button.config(text="Solve", state=tk.DISABLED)
+        for child in self.frame.winfo_children():
+            for widget in child.winfo_children():
+                if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
+                    widget.config(state=tk.NORMAL)
 
 
 if __name__ == "__main__":
