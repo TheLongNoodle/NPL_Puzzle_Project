@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class SlidingPuzzle:
 
-    # ---------------- init ---------------- #
-    def __init__(self, parent, human_mode=False):
+    # ==================== init (VIEW) ==================== #
+    def __init__(self, parent):
 
         # Initial setup
         self.move_count = 0
@@ -21,7 +21,6 @@ class SlidingPuzzle:
         self.frame = tk.Frame(parent)
         self.frame.pack()
 
-        self.human_mode = human_mode
         self.memento_stack = []
         self.redo_stack = []
 
@@ -51,24 +50,13 @@ class SlidingPuzzle:
 
         #generate buttons
         tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, sticky="ew", padx=5)
-        tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
+
+        #DEBUG
+        #tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
 
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
         # Human/Computer specific controls
-        if not self.human_mode:
-            tk.Label(control_frame, text="Speed").grid(row=4, column=0)
-            self.speed_slider = tk.Scale(control_frame, from_=1, to=750, orient=tk.HORIZONTAL, length=300)
-            self.speed_slider.set(100)
-            self.speed_slider.grid(row=4, column=1)
-
-            self.strategic_var = tk.BooleanVar(value=False)
-            self.strategic_check = tk.Checkbutton(control_frame, text="Strategic Mode", variable=self.strategic_var)
-            self.strategic_check.grid(row=5, column=0, sticky="w", padx=5)
-
-            self.solve_button = tk.Button(control_frame, text="Solve", command=self.toggle_solver, width=24)
-            self.solve_button.grid(row=5, column=1, pady=10)
-
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
 
@@ -76,24 +64,20 @@ class SlidingPuzzle:
         bottom_frame = tk.Frame(self.frame)
         bottom_frame.pack(pady=10)
 
-        if self.human_mode:
-            self.undo_button = tk.Button(bottom_frame, text="Undo", command=self.undo)
-            self.undo_button.pack(side=tk.LEFT, padx=10)
+        self.undo_button = tk.Button(bottom_frame, text="Undo", command=self.undo)
+        self.undo_button.pack(side=tk.LEFT, padx=10)
 
         # Solvability label
         self.solvable_label = tk.Label(bottom_frame, text="", font=("Arial", 12, "bold"))
         self.solvable_label.pack(side=tk.LEFT, padx=20)
 
-        if self.human_mode:
-            self.redo_button = tk.Button(bottom_frame, text="Redo", command=self.redo)
-            self.redo_button.pack(side=tk.LEFT, padx=10)
+        self.redo_button = tk.Button(bottom_frame, text="Redo", command=self.redo)
+        self.redo_button.pack(side=tk.LEFT, padx=10)
 
         self.generate_solvable()
 
-    # ---------------- Undo/Redo logic ---------------- #
+    # ==================== Undo/Redo logic (CONTROLLER) ==================== #
     def save_state(self):
-        if not self.human_mode:
-            return
         self.memento_stack.append(deepcopy(self.board))
         self.redo_stack.clear()
         logging.debug("State saved. Stack size: %d", len(self.memento_stack))
@@ -116,9 +100,8 @@ class SlidingPuzzle:
         else:
             logging.debug("Redo attempted but redo stack is empty")
 
-    # ---------------- Puzzle Generation ---------------- #
+    # ==================== Puzzle Generation (CONTROLLER) ==================== #
     def generate_random(self):
-        #self.width = self.width_slider.get()
         self.width = self.width_slider.get()
         self.height = self.height_slider.get()
         nums = list(range(1, self.width * self.height)) + [0]
@@ -166,7 +149,7 @@ class SlidingPuzzle:
             return (empty_row_from_bottom % 2 == 0) != (inv % 2 == 0)
         return True
 
-    # ---------------- Moves ---------------- #
+    # ==================== Moves (CONTROLLER) ==================== #
     def move(self, r, c):
         for i in range(self.height):
             for j in range(self.width):
@@ -245,7 +228,7 @@ class SlidingPuzzle:
 
 
 
-    # ---------------- Drawing ---------------- #
+    # ==================== Drawing (VIEW) ==================== #
 
     def draw_board(self):
         # Calculate button size
@@ -284,7 +267,7 @@ class SlidingPuzzle:
                 row_buttons = []
                 for c in range(self.width):
 
-                    if self.human_mode or not self.solver_thread or not self.solver_thread.is_alive():
+                    if not self.solver_thread or not self.solver_thread.is_alive():
                         cmd = lambda rr=r, cc=c: self.move(rr, cc)
                     else:
                         cmd = None
@@ -319,18 +302,12 @@ class SlidingPuzzle:
         # Update solvable status
         if self.is_solved_board(board=self.board):
             self.solvable_label.config(text="Solved ✔", fg="blue")
-            if not self.human_mode:
-                self.solve_button.config(state=tk.DISABLED)
         else:
             flat = [x for row in self.board for x in row]
             if self.is_solvable(flat):
                 self.solvable_label.config(text="Solvable ✔", fg="green")
-                if not self.human_mode:
-                    self.solve_button.config(state=tk.NORMAL)
             else:
                 self.solvable_label.config(text="Not Solvable ✘", fg="red")
-                if not self.human_mode:
-                    self.solve_button.config(state=tk.DISABLED)
 
 
     def update_two_buttons(self, r1, c1, r2, c2):
@@ -362,7 +339,7 @@ class SlidingPuzzle:
         )
 
 
-    # ---------------- Solver ---------------- #
+    # ==================== Solver (MODEL) ==================== #
     def toggle_solver(self):
         if self.solve_button.cget("text") == "Abort":
             # Abort requested
@@ -444,12 +421,12 @@ class SlidingPuzzle:
                     heapq.heappush(heap, (g+1 + manhattan(new_state), g+1, tuple(new_state), path + [name]))
 
     def solve_puzzle_human(self, board):
-        # -------- init -------- #
+        # ---- init ---- #
         board_copy = deepcopy(board)
         prev = (-1, -1)
         repeat_count = 0
 
-        # -------- helper functions -------- #
+        # ---- helper functions ---- #
 
         def find_tile(value):
             for r in range(len(board_copy)):
@@ -587,7 +564,7 @@ class SlidingPuzzle:
             return sorted(flat) == sorted(target_numbers)
 
 
-        # -------- main logic -------- #
+        # ---- main logic ---- #
         self.draw_board()
         moves = []
         completed = []
@@ -729,16 +706,8 @@ class SlidingPuzzle:
         for row in self.buttons:
             for btn in row:
                 btn.config(state=tk.DISABLED)
-        if self.human_mode:
-            self.undo_button.config(state=tk.DISABLED)
-            self.redo_button.config(state=tk.DISABLED)
-        else:
-            # Re-enable control buttons and reset solve button
-            self.solve_button.config(text="Solve", state=tk.DISABLED)
-            for child in self.frame.winfo_children():
-                for widget in child.winfo_children():
-                    if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
-                        widget.config(state=tk.NORMAL)
+        self.undo_button.config(state=tk.DISABLED)
+        self.redo_button.config(state=tk.DISABLED)
 
     def log_board(self, board = None):
         if board is None:
