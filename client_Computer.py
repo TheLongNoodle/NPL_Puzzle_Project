@@ -1,19 +1,116 @@
 import tkinter as tk
 from tkinter import ttk
 import random
-import logging
+# import logging # *** הוסר ***
 from copy import deepcopy
 import threading
 import heapq
 from collections import deque
+import socket  # *** נוסף ***
+import json  # *** נוסף ***
+from datetime import datetime  # *** נוסף ***
+import sys  # *** נוסף ***
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# --- Socket Logger Class ---
+# המחלקה שמטפלת בחיבור לשרת ושולחת את הודעות הלוג
+class SocketLogger:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.socket = None
+        self.is_connected = False
+        self.connect_to_server()
+
+    def connect_to_server(self):
+        """מנסה להתחבר לשרת הלוגים."""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # הגדרת Timeout קצר לחיבור כדי למנוע חסימה ארוכה מדי
+            self.socket.settimeout(2)
+            self.socket.connect((self.host, self.port))
+            self.socket.settimeout(None)  # הסרת Timeout לאחר החיבור
+            self.is_connected = True
+            self._log_local("INFO", f"SocketLogger connected to {self.host}:{self.port}")
+        except socket.error as e:
+            self.is_connected = False
+            self.socket = None
+            self._log_local("ERROR", f"Failed to connect to log server {self.host}:{self.port}: {e}")
+
+    def _log_local(self, level, message):
+        """פונקציית לוג מקומית לשימוש פנימי בלבד (במקרה של כשל בחיבור)."""
+        print(f"[{level}] {message}", file=sys.stderr if level == "ERROR" else sys.stdout)
+
+    def send_log(self, level, message):
+        """שולח הודעת לוג לשרת בפורמט JSON."""
+
+        # אם אין חיבור, נדפיס לוג מקומי במקום לשלוח
+        if not self.is_connected or not self.socket:
+            self._log_local(level, message)
+            return
+
+        # יצירת אובייקט הלוג
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "message": message,
+            "source": "ComputerPuzzleClient"  # *** שינוי: שם מקור הלוג ***
+        }
+
+        # המרה ל-JSON וקידוד לבתים, הוספת תו מפריד (כמו newline)
+        try:
+            log_message = json.dumps(log_entry).encode('utf-8') + b'\n'
+            self.socket.sendall(log_message)
+        except socket.error as e:
+            self.is_connected = False
+            self.socket.close()
+            self.socket = None
+            self._log_local("ERROR", f"Socket error while sending log: {e}. Connection lost.")
+
+
+# הגדרת אובייקט הלוגר הגלובלי
+GLOBAL_LOGGER = None
+
+
+# פונקציות עטיפה (Wrapper Functions) ללוגינג
+def custom_log(level, message, *args):
+    """פונקציה גנרית לשליחת לוגים באמצעות ה-SocketLogger."""
+    if GLOBAL_LOGGER:
+        # עיבוד ה-message עם ה-args כפי ש-logging היה עושה
+        formatted_message = message % args if args else message
+        GLOBAL_LOGGER.send_log(level, formatted_message)
+
+
+def info(message, *args):
+    custom_log("INFO", message, *args)
+
+
+def debug(message, *args):
+    custom_log("DEBUG", message, *args)
+
+
+def error(message, *args):
+    custom_log("ERROR", message, *args)
+
+
+# --- End Socket Logger Class & Wrappers ---
+
+
+# *** הסרת logging.basicConfig ***
+
 
 class SlidingPuzzle:
 
     # ==================== init (VIEW) ==================== #
     def __init__(self, parent):
+
+        # *** שינוי 1: אתחול ה-SocketLogger ***
+        SERVER_HOST = '127.0.0.1'
+        SERVER_PORT = 8080  # ודא שזה תואם לשרת
+
+        global GLOBAL_LOGGER
+        GLOBAL_LOGGER = SocketLogger(SERVER_HOST, SERVER_PORT)
+        # --------------------------------------------------
 
         # Initial setup
         self.move_count = 0
@@ -47,11 +144,12 @@ class SlidingPuzzle:
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
-        #generate buttons
-        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2, sticky="ew", padx=5)
+        # generate buttons
+        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
+                                                                                     sticky="ew", padx=5)
 
-        #DEBUG
-        #tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
+        # DEBUG
+        # tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
 
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
@@ -88,11 +186,12 @@ class SlidingPuzzle:
         self.redo_stack.clear()
         self.buttons.clear()
 
-        self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
+        self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.draw_board()
         self.move_count = 0
         self.enable_all_buttons
-        logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        # *** שינוי 2: החלפת logging.info ב-info ***
+        info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
         self.width = self.width_slider.get()
@@ -108,17 +207,18 @@ class SlidingPuzzle:
         self.redo_stack.clear()
         self.buttons.clear()
 
-        self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
+        self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.draw_board()
         self.move_count = 0
         self.enable_all_buttons
-        logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        # *** שינוי 2: החלפת logging.info ב-info ***
+        info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
         inv = 0
         nums_no_zero = [x for x in nums if x != 0]
         for i in range(len(nums_no_zero)):
-            for j in range(i+1, len(nums_no_zero)):
+            for j in range(i + 1, len(nums_no_zero)):
                 if nums_no_zero[i] > nums_no_zero[j]:
                     inv += 1
         if self.width % 2 == 1:
@@ -138,24 +238,27 @@ class SlidingPuzzle:
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
             self.update_two_buttons(er, ec, r, c)
-            logging.debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
+            # *** שינוי 2: החלפת logging.debug ב-debug ***
+            debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
             if self.is_solved_board(board=self.board):
-                logging.info("Puzzle solved in %d moves", self.move_count)
+                # *** שינוי 2: החלפת logging.info ב-info ***
+                info("Puzzle solved in %d moves", self.move_count)
                 self.draw_board()
                 self.lock_board()
         else:
-            logging.debug("Illegal move attempted: (%d, %d)", r, c)
+            # *** שינוי 2: החלפת logging.debug ב-debug ***
+            debug("Illegal move attempted: (%d, %d)", r, c)
 
     def perform_move(self, move):
         er, ec = [(i, j) for i in range(self.height) for j in range(self.width) if self.board[i][j] == 0][0]
         if move == "DOWN" and er + 1 < self.height:
-            self.move(er+1, ec)
+            self.move(er + 1, ec)
         elif move == "UP" and er - 1 >= 0:
-            self.move(er-1, ec)
+            self.move(er - 1, ec)
         elif move == "RIGHT" and ec + 1 < self.width:
-            self.move(er, ec+1)
+            self.move(er, ec + 1)
         elif move == "LEFT" and ec - 1 >= 0:
-            self.move(er, ec-1)
+            self.move(er, ec - 1)
 
     def traversal(self, width, height):
         # Initialize the matrix numbers sequentially
@@ -204,8 +307,6 @@ class SlidingPuzzle:
 
         return result
 
-
-
     # ==================== Drawing (VIEW) ==================== #
 
     def draw_board(self):
@@ -229,13 +330,13 @@ class SlidingPuzzle:
             t = val_to_pos[val] / max_pos if max_pos > 0 else 0
             h = 0.0 + 0.75 * t
             r, g, b = colorsys.hsv_to_rgb(h, 0.4, 0.95)
-            return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+            return f'#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}'
 
         # Rebuild button grid if needed
         if (
-            not self.buttons
-            or len(self.buttons) != self.height
-            or len(self.buttons[0]) != self.width
+                not self.buttons
+                or len(self.buttons) != self.height
+                or len(self.buttons[0]) != self.width
         ):
             for w in self.board_frame.winfo_children():
                 w.destroy()
@@ -290,7 +391,6 @@ class SlidingPuzzle:
                 self.solvable_label.config(text="Not Solvable ✘", fg="red")
                 self.solve_button.config(state=tk.DISABLED)
 
-
     def update_two_buttons(self, r1, c1, r2, c2):
         v1 = self.board[r1][c1]
         v2 = self.board[r2][c2]
@@ -306,7 +406,7 @@ class SlidingPuzzle:
             t = val_to_pos[val] / max_pos if max_pos > 0 else 0
             h = 0.0 + 0.75 * t
             r, g, b = colorsys.hsv_to_rgb(h, 0.4, 0.95)
-            return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+            return f'#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}'
 
         self.buttons[r1][c1].config(
             text="" if v1 == 0 else str(v1),
@@ -319,12 +419,12 @@ class SlidingPuzzle:
             activebackground=get_tile_color(v2)
         )
 
-
     # ==================== Solver (MODEL) ==================== #
     def toggle_solver(self):
         if self.solve_button.cget("text") == "Abort":
             # Abort requested
-            logging.info("Abort requested")
+            # *** שינוי 2: החלפת logging.info ב-info ***
+            info("Abort requested")
             self.abort_solver = True  # this will stop both solver and animation
             return
         else:
@@ -350,7 +450,7 @@ class SlidingPuzzle:
         for r in range(self.height):
             for c in range(self.width):
                 self.buttons[r][c].config(state=tk.NORMAL, command=lambda rr=r, cc=c: self.move(rr, cc))
-        
+
         # Enable control buttons
         for child in self.frame.winfo_children():
             for widget in child.winfo_children():
@@ -362,14 +462,14 @@ class SlidingPuzzle:
         width = len(board[0])
         height = len(board)
         start = tuple(sum(board, []))
-        target = tuple(list(range(1, width*height)) + [0])
+        target = tuple(list(range(1, width * height)) + [0])
 
         def manhattan(state):
             dist = 0
             for idx, val in enumerate(state):
-                if val == 0: 
+                if val == 0:
                     continue
-                goal_r, goal_c = divmod(val-1, width)
+                goal_r, goal_c = divmod(val - 1, width)
                 r, c = divmod(idx, width)
                 dist += abs(r - goal_r) + abs(c - goal_c)
             return dist
@@ -382,7 +482,7 @@ class SlidingPuzzle:
             # Check for abort signal
             if self.abort_solver:
                 return None
-            
+
             f, g, state, path = heapq.heappop(heap)
             if state == target:
                 return path
@@ -396,10 +496,10 @@ class SlidingPuzzle:
             for name, dr, dc in directions:
                 nr, nc = r + dr, c + dc
                 if 0 <= nr < height and 0 <= nc < width:
-                    new_idx = nr*width + nc
+                    new_idx = nr * width + nc
                     new_state = list(state)
                     new_state[zero_idx], new_state[new_idx] = new_state[new_idx], new_state[zero_idx]
-                    heapq.heappush(heap, (g+1 + manhattan(new_state), g+1, tuple(new_state), path + [name]))
+                    heapq.heappush(heap, (g + 1 + manhattan(new_state), g + 1, tuple(new_state), path + [name]))
 
     def solve_puzzle_human(self, board):
         # ---- init ---- #
@@ -418,19 +518,21 @@ class SlidingPuzzle:
 
         def move_copy(br, bc, move):
             if move == "UP":
-                board_copy[br][bc], board_copy[br-1][bc] = board_copy[br-1][bc], board_copy[br][bc]
+                board_copy[br][bc], board_copy[br - 1][bc] = board_copy[br - 1][bc], board_copy[br][bc]
             elif move == "DOWN":
-                board_copy[br][bc], board_copy[br+1][bc] = board_copy[br+1][bc], board_copy[br][bc]
+                board_copy[br][bc], board_copy[br + 1][bc] = board_copy[br + 1][bc], board_copy[br][bc]
             elif move == "LEFT":
-                board_copy[br][bc], board_copy[br][bc-1] = board_copy[br][bc-1], board_copy[br][bc]
+                board_copy[br][bc], board_copy[br][bc - 1] = board_copy[br][bc - 1], board_copy[br][bc]
             elif move == "RIGHT":
-                board_copy[br][bc], board_copy[br][bc+1] = board_copy[br][bc+1], board_copy[br][bc]
+                board_copy[br][bc], board_copy[br][bc + 1] = board_copy[br][bc + 1], board_copy[br][bc]
 
         def move_blank(target_r, target_c, tile_r, tile_c):
             nonlocal prev, repeat_count
             if prev == (tile_r, tile_c):
                 repeat_count += 1
                 if repeat_count >= 50:
+                    # *** שינוי 2: החלפת Exception ב-error ***
+                    error("Stuck in loop at tile %d,%d", tile_r, tile_c)
                     raise Exception(f"Stuck in loop at tile {tile_r},{tile_c}")
             else:
                 prev = (tile_r, tile_c)
@@ -446,8 +548,9 @@ class SlidingPuzzle:
                 (0, -1, "LEFT"),
                 (0, 1, "RIGHT")
             ]
-            
-            logging.debug((tile_r, tile_c))
+
+            # *** שינוי 2: החלפת logging.debug ב-debug ***
+            debug(f"Targeting blank move to: {(target_r, target_c)}")
 
             # BFS queue: (r, c, path_so_far)
             q = deque()
@@ -461,14 +564,16 @@ class SlidingPuzzle:
                 if (r, c) == (target_r, target_c):
                     # Execute moves on board_copy
                     for move in path:
+                        # Logic to determine where the blank tile (0) moves to
                         if move == "UP":
-                            nr, nc = r+1, c
+                            # Blank moves UP, so the tile below it moves DOWN
+                            nr, nc = r + 1, c
                         elif move == "DOWN":
-                            nr, nc = r-1, c
+                            nr, nc = r - 1, c
                         elif move == "LEFT":
-                            nr, nc = r, c+1
+                            nr, nc = r, c + 1
                         elif move == "RIGHT":
-                            nr, nc = r, c-1
+                            nr, nc = r, c - 1
 
                         # Actually swap (do forward-looking swap)
                         br, bc = find_tile(0)
@@ -481,6 +586,7 @@ class SlidingPuzzle:
                     nr, nc = r + dr, c + dc
 
                     if 0 <= nr < rows and 0 <= nc < cols:
+                        # Avoid moving completed tiles, the tile being moved, and already visited positions
                         if (nr, nc) not in completed and (nr, nc) != (tile_r, tile_c) and (nr, nc) not in visited:
                             visited.add((nr, nc))
                             q.append((nr, nc, path + [name]))
@@ -492,17 +598,17 @@ class SlidingPuzzle:
 
             tile_r, tile_c = -1, -1
 
-            while(tile_r != target_r or tile_c != target_c):
+            while (tile_r != target_r or tile_c != target_c):
 
                 tile_r, tile_c = find_tile(tile_value)
                 # Move tile horizontally
                 if tile_c > target_c:
-                    moves += move_blank(tile_r, tile_c-1, tile_r, tile_c)
+                    moves += move_blank(tile_r, tile_c - 1, tile_r, tile_c)
                     blank_r, blank_c = find_tile(0)
                     moves.append("RIGHT")
                     move_copy(blank_r, blank_c, "RIGHT")
                 if tile_c < target_c:
-                    moves += move_blank(tile_r, tile_c+1, tile_r, tile_c)
+                    moves += move_blank(tile_r, tile_c + 1, tile_r, tile_c)
                     blank_r, blank_c = find_tile(0)
                     moves.append("LEFT")
                     move_copy(blank_r, blank_c, "LEFT")
@@ -510,12 +616,12 @@ class SlidingPuzzle:
                 tile_r, tile_c = find_tile(tile_value)
                 # Move tile vertically
                 if tile_r > target_r:
-                    moves += move_blank(tile_r-1, tile_c, tile_r, tile_c)
+                    moves += move_blank(tile_r - 1, tile_c, tile_r, tile_c)
                     blank_r, blank_c = find_tile(0)
                     moves.append("DOWN")
                     move_copy(blank_r, blank_c, "DOWN")
                 if tile_r < target_r:
-                    moves += move_blank(tile_r+1, tile_c, tile_r, tile_c)
+                    moves += move_blank(tile_r + 1, tile_c, tile_r, tile_c)
                     blank_r, blank_c = find_tile(0)
                     moves.append("UP")
                     move_copy(blank_r, blank_c, "UP")
@@ -526,10 +632,12 @@ class SlidingPuzzle:
             w = self.width
 
             if h < 3 or w < 3:
+                # *** שינוי 2: החלפת Exception ב-error ***
+                error("Board must be at least 3x3 for a bottom-right subgrid check.")
                 raise ValueError("Board must be at least 3x3 for a bottom-right subgrid check.")
 
             # Extract bottom-right 3×3 region
-            subgrid = [row[w-3:] for row in board[h-3:]]
+            subgrid = [row[w - 3:] for row in board[h - 3:]]
 
             # Flatten
             flat = [v for row in subgrid for v in row]
@@ -544,7 +652,6 @@ class SlidingPuzzle:
 
             return sorted(flat) == sorted(target_numbers)
 
-
         # ---- main logic ---- #
         self.draw_board()
         moves = []
@@ -552,7 +659,8 @@ class SlidingPuzzle:
         for num, isRow in self.traversal(self.width, self.height)[:-1]:
             target_r = (num - 1) // self.width
             target_c = (num - 1) % self.width
-            logging.debug(completed)
+            # *** שינוי 2: החלפת logging.debug ב-debug ***
+            debug(f"Completed list: {completed}")
             try:
                 # Break condition for bottom-right 3x3
                 if target_r == self.height - 3 and target_c == self.width - 3:
@@ -561,36 +669,36 @@ class SlidingPuzzle:
                 # one before last in row
                 if target_c == self.width - 2 and isRow:
                     target_c += 1
-                    if board_copy[target_r][target_c] == num+1:
-                        moves += move_tile_to(num+1, target_r+2, target_c)
+                    if board_copy[target_r][target_c] == num + 1:
+                        moves += move_tile_to(num + 1, target_r + 2, target_c)
                     moves += move_tile_to(num, target_r, target_c)
-                    if find_tile(0) == (target_r, target_c-1):
+                    if find_tile(0) == (target_r, target_c - 1):
                         blank_r, blank_c = find_tile(0)
                         moves.append("DOWN")
                         move_copy(blank_r, blank_c, "DOWN")
-                    if find_tile(0) == (target_r+1, target_c):
+                    if find_tile(0) == (target_r + 1, target_c):
                         blank_r, blank_c = find_tile(0)
                         moves.append("RIGHT")
                         move_copy(blank_r, blank_c, "RIGHT")
                 # last in row
-                elif target_c == self.width  - 1 and isRow:
+                elif target_c == self.width - 1 and isRow:
                     target_r += 1
                     moves += move_tile_to(num, target_r, target_c)
-                    moves += move_tile_to(num, target_r-1, target_c)
-                    completed.append((target_r-1, target_c))
-                    completed.append((target_r-1, target_c-1))
+                    moves += move_tile_to(num, target_r - 1, target_c)
+                    completed.append((target_r - 1, target_c))
+                    completed.append((target_r - 1, target_c - 1))
                     isRow = False
                 # one before last in col
                 elif target_r == self.height - 2 and not isRow:
                     target_r += 1
                     if board_copy[target_r][target_c] == target_r * self.width + target_c + 1:
-                        moves += move_tile_to((target_r * self.width + target_c + 1), target_r, target_c+2)
+                        moves += move_tile_to((target_r * self.width + target_c + 1), target_r, target_c + 2)
                     moves += move_tile_to(num, target_r, target_c)
-                    if find_tile(0) == (target_r, target_c+1):
+                    if find_tile(0) == (target_r, target_c + 1):
                         blank_r, blank_c = find_tile(0)
                         moves.append("UP")
                         move_copy(blank_r, blank_c, "UP")
-                    if find_tile(0) == (target_r-1, target_c):
+                    if find_tile(0) == (target_r - 1, target_c):
                         blank_r, blank_c = find_tile(0)
                         moves.append("RIGHT")
                         move_copy(blank_r, blank_c, "RIGHT")
@@ -598,16 +706,17 @@ class SlidingPuzzle:
                 elif target_r == self.height - 1 and not isRow:
                     target_c += 1
                     moves += move_tile_to(num, target_r, target_c)
-                    moves += move_tile_to(num, target_r, target_c-1)
-                    completed.append((target_r, target_c-1))
-                    completed.append((target_r-1, target_c-1))
+                    moves += move_tile_to(num, target_r, target_c - 1)
+                    completed.append((target_r, target_c - 1))
+                    completed.append((target_r - 1, target_c - 1))
                     isRow = True
                 # everything else
                 else:
                     moves += move_tile_to(num, target_r, target_c)
                     completed.append((target_r, target_c))
             except Exception as e:
-                logging.debug("Algorithm anomaly avoided")
+                # *** שינוי 2: החלפת logging.debug ב-debug ***
+                debug("Algorithm anomaly avoided")
 
         # Extract sub-board, normalize and send to A-star
         br_start, bc_start = self.width - 3, self.height - 3
@@ -625,7 +734,8 @@ class SlidingPuzzle:
                     move_copy(blank_r, blank_c, move)
                 moves += sub_moves
         else:
-            logging.debug("Sub-board unsolvable, performing reshuffle...")
+            # *** שינוי 2: החלפת logging.debug ב-debug ***
+            debug("Sub-board unsolvable, performing reshuffle...")
             completed = []
             fix_moves = self.solve_puzzle_human(board_copy)
             if fix_moves is not None:
@@ -635,35 +745,41 @@ class SlidingPuzzle:
                     try:
                         move_copy(blank_r, blank_c, move)
                     except IndexError as e:
-                        logging.debug("Algorithm anomaly avoided")
+                        # *** שינוי 2: החלפת logging.debug ב-debug ***
+                        debug("Algorithm anomaly avoided")
 
         return moves
 
     def solve_puzzle(self):
-        logging.info("Solver started")
+        # *** שינוי 2: החלפת logging.info ב-info ***
+        info("Solver started")
         self.abort_solver = False
         try:
             moves = self.solve_puzzle_human(self.board)
             # abort
             if self.abort_solver or moves is None:
-                logging.info("Solver aborted")
+                # *** שינוי 2: החלפת logging.info ב-info ***
+                info("Solver aborted")
                 self.parent.after(0, self.enable_all_buttons)
             else:
-                logging.info("Solver finished")
+                # *** שינוי 2: החלפת logging.info ב-info ***
+                info("Solver finished")
                 self.parent.after(0, lambda: self.animate_solution(moves))
         except Exception as e:
-            logging.error("Solver crashed: %s", e, exc_info=True)
+            # *** שינוי 2: החלפת logging.error ב-error ***
+            error("Solver crashed: %s", e)
             self.parent.after(0, self.enable_all_buttons)
 
     def animate_solution(self, moves):
         if not moves or self.abort_solver:
-            logging.info("Animation stopped")
+            # *** שינוי 2: החלפת logging.info ב-info ***
+            info("Animation stopped")
             self.enable_all_buttons()
             return
 
         move = moves.pop(0)
         self.perform_move(move)
-        
+
         # If this was the last move, lock the board after animation completes
         if not moves:
             delay = self.speed_slider.get()
@@ -672,10 +788,10 @@ class SlidingPuzzle:
             delay = self.speed_slider.get()
             self.parent.after(delay, lambda: self.animate_solution(moves))
 
-    def is_solved_board(self, board = None):
+    def is_solved_board(self, board=None):
         if board is None:
             board = self.board
-        target = [[(i*self.width + j + 1) % (self.width*self.height) 
+        target = [[(i * self.width + j + 1) % (self.width * self.height)
                    for j in range(self.width)] for i in range(self.height)]
         return board == target
 
@@ -690,16 +806,31 @@ class SlidingPuzzle:
                 if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
                     widget.config(state=tk.NORMAL)
 
-    def log_board(self, board = None):
+    def log_board(self, board=None):
         if board is None:
             board = self.board
         board_str = "\n".join(["\t".join(f"{val:2}" for val in row) for row in board])
-        logging.info("Current board:\n%s", board_str)
+        # *** שינוי 2: החלפת logging.info ב-info ***
+        info("Current board:\n%s", board_str)
 
 
 if __name__ == "__main__":
     root = tk.Tk()
-    root.title("Sliding Puzzle")
+    root.title("Sliding Puzzle (Computer)")
     root.geometry("800x900")
     puzzle = SlidingPuzzle(root)
+
+
+    # *** שינוי 3: טיפול בסגירת חלון לסגירת ה-Socket ***
+    def on_closing():
+        global GLOBAL_LOGGER
+        if GLOBAL_LOGGER and GLOBAL_LOGGER.is_connected:
+            GLOBAL_LOGGER.send_log("INFO", "Client application closing.")
+            GLOBAL_LOGGER.socket.close()
+        root.destroy()
+
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    # --------------------------------------------------
+
     root.mainloop()

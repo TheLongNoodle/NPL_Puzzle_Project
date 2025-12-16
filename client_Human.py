@@ -1,19 +1,111 @@
 import tkinter as tk
 from tkinter import ttk
 import random
-import logging
+import socket
+import json
+from datetime import datetime
 from copy import deepcopy
 import threading
 import heapq
 from collections import deque
+import sys
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# --- Socket Logger Class ---
+# המחלקה שמטפלת בחיבור לשרת ושולחת את הודעות הלוג
+class SocketLogger:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.socket = None
+        self.is_connected = False
+        self.connect_to_server()
+
+    def connect_to_server(self):
+        """מנסה להתחבר לשרת הלוגים."""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.connect((self.host, self.port))
+            self.is_connected = True
+            self._log_local("INFO", f"SocketLogger connected to {self.host}:{self.port}")
+        except socket.error as e:
+            self.is_connected = False
+            self.socket = None
+            self._log_local("ERROR", f"Failed to connect to log server {self.host}:{self.port}: {e}")
+
+    def _log_local(self, level, message):
+        """פונקציית לוג מקומית לשימוש פנימי בלבד (במקרה של כשל בחיבור)."""
+        print(f"[{level}] {message}", file=sys.stderr if level == "ERROR" else sys.stdout)
+
+    def send_log(self, level, message):
+        """שולח הודעת לוג לשרת בפורמט JSON."""
+
+        # אם אין חיבור, נדפיס לוג מקומי במקום לשלוח
+        if not self.is_connected or not self.socket:
+            self._log_local(level, message)
+            return
+
+        # יצירת אובייקט הלוג
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "level": level,
+            "message": message,
+            "source": "SlidingPuzzleClient"
+        }
+
+        # המרה ל-JSON וקידוד לבתים, הוספת תו מפריד (כמו newline)
+        try:
+            log_message = json.dumps(log_entry).encode('utf-8') + b'\n'
+            self.socket.sendall(log_message)
+        except socket.error as e:
+            self.is_connected = False
+            self.socket.close()
+            self.socket = None
+            self._log_local("ERROR", f"Socket error while sending log: {e}. Connection lost.")
+
+
+# הגדרת אובייקט הלוגר הגלובלי (או כחלק מהמחלקה הראשית)
+# הערה: נשתמש ב-None זמנית, ונתחל אותו בתוך __init__ של SlidingPuzzle
+GLOBAL_LOGGER = None
+
+
+# פונקציות עטיפה (Wrapper Functions) ללוגינג
+def custom_log(level, message, *args):
+    """פונקציה גנרית לשליחת לוגים באמצעות ה-SocketLogger."""
+    if GLOBAL_LOGGER:
+        # עיבוד ה-message עם ה-args כפי ש-logging היה עושה
+        formatted_message = message % args if args else message
+        GLOBAL_LOGGER.send_log(level, formatted_message)
+
+
+def info(message, *args):
+    custom_log("INFO", message, *args)
+
+
+def debug(message, *args):
+    custom_log("DEBUG", message, *args)
+
+
+def error(message, *args):
+    custom_log("ERROR", message, *args)
+
+
+# --- End Socket Logger Class & Wrappers ---
+
 
 class SlidingPuzzle:
 
     # ==================== init (VIEW) ==================== #
     def __init__(self, parent):
+
+        # *** שינוי 1: אתחול ה-SocketLogger ***
+        # הגדרת פרטי השרת
+        SERVER_HOST = '127.0.0.1'
+        SERVER_PORT = 8080
+
+        global GLOBAL_LOGGER
+        GLOBAL_LOGGER = SocketLogger(SERVER_HOST, SERVER_PORT)
+        # --------------------------------------------------
 
         # Initial setup
         self.move_count = 0
@@ -42,17 +134,18 @@ class SlidingPuzzle:
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
-        #tk.Label(control_frame, text="Height").grid(row=1, column=0)
+        # tk.Label(control_frame, text="Height").grid(row=1, column=0)
         tk.Label(control_frame, text="Size").grid(row=1, column=0)
         self.height_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
-        #generate buttons
-        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2, sticky="ew", padx=5)
+        # generate buttons
+        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
+                                                                                     sticky="ew", padx=5)
 
-        #DEBUG
-        #tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
+        # DEBUG
+        # tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
 
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
@@ -80,25 +173,30 @@ class SlidingPuzzle:
     def save_state(self):
         self.memento_stack.append(deepcopy(self.board))
         self.redo_stack.clear()
-        logging.debug("State saved. Stack size: %d", len(self.memento_stack))
+        # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+        debug("State saved. Stack size: %d", len(self.memento_stack))
 
     def undo(self):
         if self.memento_stack:
             self.redo_stack.append(deepcopy(self.board))
             self.board = self.memento_stack.pop()
             self.draw_board()
-            logging.debug("Undo performed. Remaining states: %d", len(self.memento_stack))
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Undo performed. Remaining states: %d", len(self.memento_stack))
         else:
-            logging.debug("Undo attempted but undo stack is empty")
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Undo attempted but undo stack is empty")
 
     def redo(self):
         if self.redo_stack:
             self.memento_stack.append(deepcopy(self.board))
             self.board = self.redo_stack.pop()
             self.draw_board()
-            logging.debug("Redo performed. Remaining redo states: %d", len(self.redo_stack))
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Redo performed. Remaining redo states: %d", len(self.redo_stack))
         else:
-            logging.debug("Redo attempted but redo stack is empty")
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Redo attempted but redo stack is empty")
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
     def generate_random(self):
@@ -113,11 +211,12 @@ class SlidingPuzzle:
         self.undo_button.config(state=tk.NORMAL)
         self.redo_button.config(state=tk.NORMAL)
 
-        self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
+        self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.save_state()
         self.draw_board()
         self.move_count = 0
-        logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
+        info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
         self.width = self.width_slider.get()
@@ -135,17 +234,18 @@ class SlidingPuzzle:
         self.undo_button.config(state=tk.NORMAL)
         self.redo_button.config(state=tk.NORMAL)
 
-        self.board = [nums[i*self.width:(i+1)*self.width] for i in range(self.height)]
+        self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.save_state()
         self.draw_board()
         self.move_count = 0
-        logging.info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
+        info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
         inv = 0
         nums_no_zero = [x for x in nums if x != 0]
         for i in range(len(nums_no_zero)):
-            for j in range(i+1, len(nums_no_zero)):
+            for j in range(i + 1, len(nums_no_zero)):
                 if nums_no_zero[i] > nums_no_zero[j]:
                     inv += 1
         if self.width % 2 == 1:
@@ -166,25 +266,29 @@ class SlidingPuzzle:
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
             self.update_two_buttons(er, ec, r, c)
-            logging.debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
             if self.is_solved_board(board=self.board):
-                logging.info("Puzzle solved in %d moves", self.move_count)
+                # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
+                info("Puzzle solved in %d moves", self.move_count)
                 self.draw_board()
                 self.lock_board()
         else:
-            logging.debug("Illegal move attempted: (%d, %d)", r, c)
+            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
+            debug("Illegal move attempted: (%d, %d)", r, c)
 
     def perform_move(self, move):
         er, ec = [(i, j) for i in range(self.height) for j in range(self.width) if self.board[i][j] == 0][0]
         if move == "DOWN" and er + 1 < self.height:
-            self.move(er+1, ec)
+            self.move(er + 1, ec)
         elif move == "UP" and er - 1 >= 0:
-            self.move(er-1, ec)
+            self.move(er - 1, ec)
         elif move == "RIGHT" and ec + 1 < self.width:
-            self.move(er, ec+1)
+            self.move(er, ec + 1)
         elif move == "LEFT" and ec - 1 >= 0:
-            self.move(er, ec-1)
+            self.move(er, ec - 1)
 
+    # פונקציית traversal נשארה ללא שינוי...
     def traversal(self, width, height):
         # Initialize the matrix numbers sequentially
         matrix = [[r * width + c + 1 for c in range(width)] for r in range(height)]
@@ -232,9 +336,8 @@ class SlidingPuzzle:
 
         return result
 
-
-
     # ==================== Drawing (VIEW) ==================== #
+    # ... שאר הפונקציות ב-SlidingPuzzle נשארו ללא שינוי, למעט שינוי ייבוא ...
 
     def draw_board(self):
         # Calculate button size
@@ -257,13 +360,13 @@ class SlidingPuzzle:
             t = val_to_pos[val] / max_pos if max_pos > 0 else 0
             h = 0.0 + 0.75 * t
             r, g, b = colorsys.hsv_to_rgb(h, 0.4, 0.95)
-            return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+            return f'#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}'
 
         # Rebuild button grid if needed
         if (
-            not self.buttons
-            or len(self.buttons) != self.height
-            or len(self.buttons[0]) != self.width
+                not self.buttons
+                or len(self.buttons) != self.height
+                or len(self.buttons[0]) != self.width
         ):
             for w in self.board_frame.winfo_children():
                 w.destroy()
@@ -315,7 +418,6 @@ class SlidingPuzzle:
             else:
                 self.solvable_label.config(text="Not Solvable ✘", fg="red")
 
-
     def update_two_buttons(self, r1, c1, r2, c2):
         v1 = self.board[r1][c1]
         v2 = self.board[r2][c2]
@@ -331,7 +433,7 @@ class SlidingPuzzle:
             t = val_to_pos[val] / max_pos if max_pos > 0 else 0
             h = 0.0 + 0.75 * t
             r, g, b = colorsys.hsv_to_rgb(h, 0.4, 0.95)
-            return f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+            return f'#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}'
 
         self.buttons[r1][c1].config(
             text="" if v1 == 0 else str(v1),
@@ -344,13 +446,13 @@ class SlidingPuzzle:
             activebackground=get_tile_color(v2)
         )
 
-    def is_solved_board(self, board = None):
+    def is_solved_board(self, board=None):
         if board is None:
             board = self.board
-        target = [[(i*self.width + j + 1) % (self.width*self.height) 
+        target = [[(i * self.width + j + 1) % (self.width * self.height)
                    for j in range(self.width)] for i in range(self.height)]
         return board == target
-    
+
     def lock_board(self):
         for row in self.buttons:
             for btn in row:
@@ -365,8 +467,27 @@ class SlidingPuzzle:
 
 
 if __name__ == "__main__":
+
+    # *** שינוי 3: הסרת ייבוא logging והגדרת basicConfig ***
+    # השימוש ב-logging הוסר מהייבוא.
+    # logging.basicConfig(...) הוסר.
+    # --------------------------------------------------------
+
     root = tk.Tk()
     root.title("Sliding Puzzle")
     root.geometry("800x900")
     puzzle = SlidingPuzzle(root)
+
+
+    # הוספת טיפול לסגירת חלון כדי לסגור את ה-socket
+    def on_closing():
+        global GLOBAL_LOGGER
+        if GLOBAL_LOGGER and GLOBAL_LOGGER.is_connected:
+            GLOBAL_LOGGER.send_log("INFO", "Client application closing.")
+            GLOBAL_LOGGER.socket.close()
+        root.destroy()
+
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
     root.mainloop()
