@@ -356,7 +356,6 @@ class SlidingPuzzle:
         self.undo_button.config(state=tk.DISABLED)
         self.redo_button.config(state=tk.DISABLED)
         # Re-enable control buttons and reset solve button
-        self.solve_button.config(text="Solve", state=tk.DISABLED)
         for child in self.frame.winfo_children():
             for widget in child.winfo_children():
                 if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):

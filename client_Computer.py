@@ -61,12 +61,8 @@ class SlidingPuzzle:
         self.speed_slider.set(100)
         self.speed_slider.grid(row=4, column=1)
 
-        self.strategic_var = tk.BooleanVar(value=False)
-        self.strategic_check = tk.Checkbutton(control_frame, text="Strategic Mode", variable=self.strategic_var)
-        self.strategic_check.grid(row=5, column=0, sticky="w", padx=5)
-
         self.solve_button = tk.Button(control_frame, text="Solve", command=self.toggle_solver, width=24)
-        self.solve_button.grid(row=5, column=1, pady=10)
+        self.solve_button.grid(row=5, column=0, columnspan=2, pady=10)
 
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
@@ -643,11 +639,7 @@ class SlidingPuzzle:
         logging.info("Solver started")
         self.abort_solver = False
         try:
-            # sloution mode
-            if getattr(self, 'strategic_var', None) and self.strategic_var.get():
-                moves = self.solve_puzzle_human(self.board)
-            else:
-                moves = self.solve_puzzle_astar(self.board)
+            moves = self.solve_puzzle_human(self.board)
             # abort
             if self.abort_solver or moves is None:
                 logging.info("Solver aborted")
