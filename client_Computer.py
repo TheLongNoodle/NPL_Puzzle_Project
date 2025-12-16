@@ -1,20 +1,20 @@
 import tkinter as tk
 from tkinter import ttk
 import random
-# import logging # *** הוסר ***
 from copy import deepcopy
 import threading
 import heapq
 from collections import deque
-import socket  # *** נוסף ***
-import json  # *** נוסף ***
-from datetime import datetime  # *** נוסף ***
-import sys  # *** נוסף ***
+import socket
+import json
+from datetime import datetime
+import sys
 
 
 # --- Socket Logger Class ---
-# המחלקה שמטפלת בחיבור לשרת ושולחת את הודעות הלוג
 class SocketLogger:
+    """The class handling connection and sending log messages to the server."""
+
     def __init__(self, host, port):
         self.host = host
         self.port = port
@@ -23,13 +23,14 @@ class SocketLogger:
         self.connect_to_server()
 
     def connect_to_server(self):
-        """מנסה להתחבר לשרת הלוגים."""
+        """Attempts to establish connection with the log server."""
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            # הגדרת Timeout קצר לחיבור כדי למנוע חסימה ארוכה מדי
+            # Set a short timeout to prevent long blocking.
             self.socket.settimeout(2)
             self.socket.connect((self.host, self.port))
-            self.socket.settimeout(None)  # הסרת Timeout לאחר החיבור
+            # Remove timeout after successful connection.
+            self.socket.settimeout(None)
             self.is_connected = True
             self._log_local("INFO", f"SocketLogger connected to {self.host}:{self.port}")
         except socket.error as e:
@@ -38,26 +39,26 @@ class SocketLogger:
             self._log_local("ERROR", f"Failed to connect to log server {self.host}:{self.port}: {e}")
 
     def _log_local(self, level, message):
-        """פונקציית לוג מקומית לשימוש פנימי בלבד (במקרה של כשל בחיבור)."""
+        """Local log function for internal use (on connection failure)."""
         print(f"[{level}] {message}", file=sys.stderr if level == "ERROR" else sys.stdout)
 
     def send_log(self, level, message):
-        """שולח הודעת לוג לשרת בפורמט JSON."""
+        """Sends a log message to the server in JSON format."""
 
-        # אם אין חיבור, נדפיס לוג מקומי במקום לשלוח
+        # If disconnected, log locally instead of sending.
         if not self.is_connected or not self.socket:
             self._log_local(level, message)
             return
 
-        # יצירת אובייקט הלוג
+        # Create the log object.
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "level": level,
             "message": message,
-            "source": "ComputerPuzzleClient"  # *** שינוי: שם מקור הלוג ***
+            "source": "ComputerPuzzleClient"
         }
 
-        # המרה ל-JSON וקידוד לבתים, הוספת תו מפריד (כמו newline)
+        # Convert to JSON, encode, and append newline separator.
         try:
             log_message = json.dumps(log_entry).encode('utf-8') + b'\n'
             self.socket.sendall(log_message)
@@ -68,15 +69,15 @@ class SocketLogger:
             self._log_local("ERROR", f"Socket error while sending log: {e}. Connection lost.")
 
 
-# הגדרת אובייקט הלוגר הגלובלי
+# Define the global logger object.
 GLOBAL_LOGGER = None
 
 
-# פונקציות עטיפה (Wrapper Functions) ללוגינג
+# Wrapper Functions for logging
 def custom_log(level, message, *args):
-    """פונקציה גנרית לשליחת לוגים באמצעות ה-SocketLogger."""
+    """Generic function to send logs via SocketLogger."""
     if GLOBAL_LOGGER:
-        # עיבוד ה-message עם ה-args כפי ש-logging היה עושה
+        # Format message with args similar to the standard logging module.
         formatted_message = message % args if args else message
         GLOBAL_LOGGER.send_log(level, formatted_message)
 
@@ -96,21 +97,17 @@ def error(message, *args):
 # --- End Socket Logger Class & Wrappers ---
 
 
-# *** הסרת logging.basicConfig ***
-
-
 class SlidingPuzzle:
 
     # ==================== init (VIEW) ==================== #
     def __init__(self, parent):
 
-        # *** שינוי 1: אתחול ה-SocketLogger ***
+        # SocketLogger initialization
         SERVER_HOST = '127.0.0.1'
-        SERVER_PORT = 8080  # ודא שזה תואם לשרת
+        SERVER_PORT = 8080
 
         global GLOBAL_LOGGER
         GLOBAL_LOGGER = SocketLogger(SERVER_HOST, SERVER_PORT)
-        # --------------------------------------------------
 
         # Initial setup
         self.move_count = 0
@@ -133,7 +130,7 @@ class SlidingPuzzle:
         control_frame = tk.Frame(self.frame)
         control_frame.pack()
 
-        # width/height
+        # width/height sliders
         tk.Label(control_frame, text="Width").grid(row=0, column=0)
         self.width_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
@@ -147,9 +144,6 @@ class SlidingPuzzle:
         # generate buttons
         tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
                                                                                      sticky="ew", padx=5)
-
-        # DEBUG
-        # tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
 
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
@@ -165,11 +159,9 @@ class SlidingPuzzle:
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
 
-        # Undo/Redo
+        # Solvability label
         bottom_frame = tk.Frame(self.frame)
         bottom_frame.pack(pady=10)
-
-        # Solvability label
         self.solvable_label = tk.Label(bottom_frame, text="", font=("Arial", 12, "bold"))
         self.solvable_label.pack(side=tk.LEFT, padx=20)
 
@@ -190,7 +182,6 @@ class SlidingPuzzle:
         self.draw_board()
         self.move_count = 0
         self.enable_all_buttons
-        # *** שינוי 2: החלפת logging.info ב-info ***
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
@@ -211,7 +202,6 @@ class SlidingPuzzle:
         self.draw_board()
         self.move_count = 0
         self.enable_all_buttons
-        # *** שינוי 2: החלפת logging.info ב-info ***
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
@@ -238,15 +228,12 @@ class SlidingPuzzle:
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
             self.update_two_buttons(er, ec, r, c)
-            # *** שינוי 2: החלפת logging.debug ב-debug ***
             debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
             if self.is_solved_board(board=self.board):
-                # *** שינוי 2: החלפת logging.info ב-info ***
                 info("Puzzle solved in %d moves", self.move_count)
                 self.draw_board()
                 self.lock_board()
         else:
-            # *** שינוי 2: החלפת logging.debug ב-debug ***
             debug("Illegal move attempted: (%d, %d)", r, c)
 
     def perform_move(self, move):
@@ -281,7 +268,7 @@ class SlidingPuzzle:
                     result.append((matrix[r][left], False))
                 left += 1
 
-        # Now it's square; do row/column traversal (top to bottom rows, left to right columns)
+        # Now it's square; do row/column traversal
         while top <= bottom and left <= right:
             # Take top row
             for c in range(left, right + 1):
@@ -310,7 +297,7 @@ class SlidingPuzzle:
     # ==================== Drawing (VIEW) ==================== #
 
     def draw_board(self):
-        # Calculate button size
+        # Calculate button size and font dynamically
         max_button_width = max(3, 30 // self.width)
         max_button_height = max(2, 20 // self.height)
         button_width = min(max_button_width, 8)
@@ -319,7 +306,7 @@ class SlidingPuzzle:
 
         import colorsys
 
-        # Generate traversal order
+        # Generate traversal order for color mapping
         traversal_order = self.traversal(self.width, self.height)
         val_to_pos = {val: i for i, (val, _) in enumerate(traversal_order)}
         max_pos = len(traversal_order) - 1
@@ -423,7 +410,6 @@ class SlidingPuzzle:
     def toggle_solver(self):
         if self.solve_button.cget("text") == "Abort":
             # Abort requested
-            # *** שינוי 2: החלפת logging.info ב-info ***
             info("Abort requested")
             self.abort_solver = True  # this will stop both solver and animation
             return
@@ -531,7 +517,6 @@ class SlidingPuzzle:
             if prev == (tile_r, tile_c):
                 repeat_count += 1
                 if repeat_count >= 50:
-                    # *** שינוי 2: החלפת Exception ב-error ***
                     error("Stuck in loop at tile %d,%d", tile_r, tile_c)
                     raise Exception(f"Stuck in loop at tile {tile_r},{tile_c}")
             else:
@@ -549,7 +534,6 @@ class SlidingPuzzle:
                 (0, 1, "RIGHT")
             ]
 
-            # *** שינוי 2: החלפת logging.debug ב-debug ***
             debug(f"Targeting blank move to: {(target_r, target_c)}")
 
             # BFS queue: (r, c, path_so_far)
@@ -564,9 +548,8 @@ class SlidingPuzzle:
                 if (r, c) == (target_r, target_c):
                     # Execute moves on board_copy
                     for move in path:
-                        # Logic to determine where the blank tile (0) moves to
+                        # Determine the position of the tile that moves into the blank spot
                         if move == "UP":
-                            # Blank moves UP, so the tile below it moves DOWN
                             nr, nc = r + 1, c
                         elif move == "DOWN":
                             nr, nc = r - 1, c
@@ -632,7 +615,6 @@ class SlidingPuzzle:
             w = self.width
 
             if h < 3 or w < 3:
-                # *** שינוי 2: החלפת Exception ב-error ***
                 error("Board must be at least 3x3 for a bottom-right subgrid check.")
                 raise ValueError("Board must be at least 3x3 for a bottom-right subgrid check.")
 
@@ -646,8 +628,6 @@ class SlidingPuzzle:
             target_numbers = []
             for r in range(h - 3, h):
                 for c in range(w - 3, w):
-                    # Convert row/col to tile number:
-                    # tile = r * width + c + 1  (mod total tiles)
                     target_numbers.append((r * w + c + 1) % (w * h))
 
             return sorted(flat) == sorted(target_numbers)
@@ -659,7 +639,6 @@ class SlidingPuzzle:
         for num, isRow in self.traversal(self.width, self.height)[:-1]:
             target_r = (num - 1) // self.width
             target_c = (num - 1) % self.width
-            # *** שינוי 2: החלפת logging.debug ב-debug ***
             debug(f"Completed list: {completed}")
             try:
                 # Break condition for bottom-right 3x3
@@ -715,7 +694,6 @@ class SlidingPuzzle:
                     moves += move_tile_to(num, target_r, target_c)
                     completed.append((target_r, target_c))
             except Exception as e:
-                # *** שינוי 2: החלפת logging.debug ב-debug ***
                 debug("Algorithm anomaly avoided")
 
         # Extract sub-board, normalize and send to A-star
@@ -734,7 +712,6 @@ class SlidingPuzzle:
                     move_copy(blank_r, blank_c, move)
                 moves += sub_moves
         else:
-            # *** שינוי 2: החלפת logging.debug ב-debug ***
             debug("Sub-board unsolvable, performing reshuffle...")
             completed = []
             fix_moves = self.solve_puzzle_human(board_copy)
@@ -745,34 +722,28 @@ class SlidingPuzzle:
                     try:
                         move_copy(blank_r, blank_c, move)
                     except IndexError as e:
-                        # *** שינוי 2: החלפת logging.debug ב-debug ***
                         debug("Algorithm anomaly avoided")
 
         return moves
 
     def solve_puzzle(self):
-        # *** שינוי 2: החלפת logging.info ב-info ***
         info("Solver started")
         self.abort_solver = False
         try:
             moves = self.solve_puzzle_human(self.board)
             # abort
             if self.abort_solver or moves is None:
-                # *** שינוי 2: החלפת logging.info ב-info ***
                 info("Solver aborted")
                 self.parent.after(0, self.enable_all_buttons)
             else:
-                # *** שינוי 2: החלפת logging.info ב-info ***
                 info("Solver finished")
                 self.parent.after(0, lambda: self.animate_solution(moves))
         except Exception as e:
-            # *** שינוי 2: החלפת logging.error ב-error ***
             error("Solver crashed: %s", e)
             self.parent.after(0, self.enable_all_buttons)
 
     def animate_solution(self, moves):
         if not moves or self.abort_solver:
-            # *** שינוי 2: החלפת logging.info ב-info ***
             info("Animation stopped")
             self.enable_all_buttons()
             return
@@ -810,7 +781,6 @@ class SlidingPuzzle:
         if board is None:
             board = self.board
         board_str = "\n".join(["\t".join(f"{val:2}" for val in row) for row in board])
-        # *** שינוי 2: החלפת logging.info ב-info ***
         info("Current board:\n%s", board_str)
 
 
@@ -821,7 +791,7 @@ if __name__ == "__main__":
     puzzle = SlidingPuzzle(root)
 
 
-    # *** שינוי 3: טיפול בסגירת חלון לסגירת ה-Socket ***
+    # Handle window close event to ensure socket cleanup.
     def on_closing():
         global GLOBAL_LOGGER
         if GLOBAL_LOGGER and GLOBAL_LOGGER.is_connected:
@@ -831,6 +801,5 @@ if __name__ == "__main__":
 
 
     root.protocol("WM_DELETE_WINDOW", on_closing)
-    # --------------------------------------------------
 
     root.mainloop()

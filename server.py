@@ -5,18 +5,17 @@ import threading
 import json
 import time
 import logging
-import sys  # נדרש כדי להשתמש ב-sys.stderr
+import sys
 
 # --- CLIENT IMPORTS ---
 try:
-    # ייתכן ששמות הקבצים שונים, אך נניח שהם אלה
     from client_Human import SlidingPuzzle as HumanPuzzle
     from client_Computer import SlidingPuzzle as ComputerPuzzle
 except ImportError as e:
     logging.critical(f"CRITICAL ERROR: Could not import client files. {e}")
 
 
-    # מחלקות דמה למניעת קריסה מיידית
+    # Dummy classes to prevent immediate crash if files are missing
     class HumanPuzzle:
         def __init__(self, parent): logging.info("Human Client Missing")
 
@@ -25,31 +24,27 @@ except ImportError as e:
         def __init__(self, parent): logging.info("Computer Client Missing")
 
 # Configuration
-# *** שינוי: הפורט הותאם ל-8080 כפי שהוגדר בקוד הלקוח המעודכן ***
 HOST = '127.0.0.1'
 PORT = 8080
-MAX_BYTES = 4096  # *** שינוי: הגדלת הבאפר לטיפול ב-JSON Streaming ***
+MAX_BYTES = 4096
 
 
 # --- Logging Setup ---
-# A custom handler to direct log records to the Tkinter scrolled text widget
 class TkinterLogHandler(logging.Handler):
-    """מנתב את הודעות הלוג מהפייתון לממשק הגרפי (GUI) בצורה בטוחה ל-Threads."""
+    """Routes Python log messages safely to the Tkinter GUI from various threads."""
 
     def __init__(self, view_instance):
         super().__init__()
         self.view = view_instance
-        # הפורמט שיוצג ב-GUI
         self.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
 
     def emit(self, record):
         msg = self.format(record)
-        # עדכון GUI מתבצע בצורה אסינכרונית ובטוחה ל-Thread
+        # Using 'after' for safe, asynchronous GUI updates.
         self.view.log_gui(msg)
 
 
 # Set up the basic logging configuration
-# הפורמט שיוצג בקונסולה של השרת
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(threadName)s - %(levelname)s: %(message)s')
 
@@ -149,12 +144,11 @@ class ServerView:
         logging.getLogger().addHandler(self.log_handler)
 
     def log_gui(self, message):
-        """Thread-safe logging to the GUI from the log handler."""
-        # שימוש ב-after מאפשר עדכון מהיר ובטוח של ה-GUI מכל thread
+        """Thread-safe logging to the GUI."""
         self.root.after(0, self._update_log_area, message)
 
     def _update_log_area(self, message):
-        """פונקציה פנימית המופעלת על ידי ה-main thread"""
+        """Internal function run by the main thread."""
         self.log_area.config(state='normal')
         self.log_area.insert(tk.END, message + "\n")
         self.log_area.see(tk.END)
@@ -203,11 +197,10 @@ class ServerController:
 
     def handle_client_connection(self, conn, addr):
         """
-        Communicates with a connected client.
-        Handles JSON stream protocol where messages are separated by '\n'.
+        Communicates with a connected client using a newline-separated JSON stream.
         """
         client_type = None
-        buffer = ""  # מאגר (Buffer) לקליטת נתונים שטרם פוצלו
+        buffer = ""  # Buffer for accumulating incoming data stream.
 
         try:
             with conn:
@@ -216,43 +209,40 @@ class ServerController:
                 while True:
                     data = conn.recv(MAX_BYTES)
                     if not data:
-                        break  # הלקוח ניתק
+                        break
 
-                    # *** התחלת טיפול בזרם נתונים (Streaming) ***
                     try:
                         buffer += data.decode('utf-8')
                     except UnicodeDecodeError:
                         logging.error(f"Failed to decode data from {addr}")
                         continue
 
-                    # מעבד את הבאפר כל עוד יש בו הודעות מלאות (מופרדות ב-\n)
+                    # Processes buffer, splitting messages by newline.
                     while '\n' in buffer:
                         message_str, buffer = buffer.split('\n', 1)
 
                         if not message_str.strip():
-                            continue  # מדלג על שורות ריקות
+                            continue
 
                         try:
                             msg = json.loads(message_str)
 
-                            # *** טיפול בהודעות לוג חדשות מהלקוח ***
-                            # פורמט: {"timestamp": ..., "level": "INFO", "message": "...", "source": "..."}
+                            # Client log message
                             if 'level' in msg and 'message' in msg:
                                 msg_level = msg.get('level', 'UNKNOWN').upper()
                                 msg_source = msg.get('source', 'Client')
                                 msg_message = msg.get('message', 'No message content.')
 
-                                # מנתב את הלוגר לשימוש ב-logging המובנה של השרת
-                                # (info, debug, error וכו')
+                                # Routes the log to the server's logging facility.
                                 log_func = getattr(logging, msg_level.lower(), logging.info)
 
-                                # מוסיף את סוג הלקוח אם הוא כבר מוגדר
+                                # Adds client type prefix if known.
                                 prefix = f"[{client_type.upper()} LOG]" if client_type else f"[{msg_source}]"
                                 log_func(f"{prefix} {msg_message}")
 
-                                continue  # חוזר ללולאה לבדיקת הודעה הבאה בבאפר
+                                continue
 
-                            # *** טיפול בהודעות הפרוטוקול המקוריות (Connect, Stats, Disconnect) ***
+                                # Original protocol messages (Connect, Stats, Disconnect)
                             msg_type = msg.get('type')
 
                             if msg_type == 'connect':
@@ -261,7 +251,7 @@ class ServerController:
                                 self.model.set_client_active(client_type, True)
 
                             elif msg_type == 'stats':
-                                # מוודא ש-client_type הוגדר לפני עדכון סטטיסטיקות
+                                # Ensure client_type is set before updating stats.
                                 if not client_type:
                                     logging.warning("Stats received before client_type was set.")
                                     continue
@@ -297,8 +287,7 @@ class ServerController:
 
     def launch_client(self, client_type):
         """
-        Launches the specific client code in a thread.
-        Implements Singleton Pattern: Checks if client is already open.
+        Launches the specific client code in a thread, enforcing Singleton pattern.
         """
         # 1. Singleton Check
         if self.model.is_client_active(client_type):
@@ -309,20 +298,19 @@ class ServerController:
         self.model.set_client_active(client_type, True)
         logging.info(f"Starting {client_type} client...")
 
-        # 3. Define wrapper to create a new Root for the thread and pass it to the class
+        # 3. Define wrapper to create a new Root for the thread
         def run_client_wrapper(c_type):
             try:
                 # Create a NEW tkinter root for this specific client thread
                 client_root = tk.Tk()
                 client_root.title(f"{c_type.capitalize()} Game Client")
 
-                # Instantiate the client class with the new root
+                # Instantiate the client class
                 if c_type == 'human':
                     app = HumanPuzzle(client_root)
                 elif c_type == 'computer':
                     app = ComputerPuzzle(client_root)
 
-                # Start the main loop for this client
                 client_root.mainloop()
 
             except Exception as e:
@@ -344,7 +332,7 @@ class ServerController:
         logging.info("Shutting down server.")
         self.running = False
         try:
-            # כדי לשחרר את server_socket.accept() הנתקע
+            # To unblock server_socket.accept().
             self.server_socket.close()
         except:
             pass

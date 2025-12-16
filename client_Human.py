@@ -12,8 +12,8 @@ import sys
 
 
 # --- Socket Logger Class ---
-# המחלקה שמטפלת בחיבור לשרת ושולחת את הודעות הלוג
 class SocketLogger:
+    """The class handling connection and sending log messages to the server."""
     def __init__(self, host, port):
         self.host = host
         self.port = port
@@ -22,10 +22,12 @@ class SocketLogger:
         self.connect_to_server()
 
     def connect_to_server(self):
-        """מנסה להתחבר לשרת הלוגים."""
+        """Attempts to establish connection with the log server."""
         try:
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(2)
             self.socket.connect((self.host, self.port))
+            self.socket.settimeout(None)
             self.is_connected = True
             self._log_local("INFO", f"SocketLogger connected to {self.host}:{self.port}")
         except socket.error as e:
@@ -34,26 +36,26 @@ class SocketLogger:
             self._log_local("ERROR", f"Failed to connect to log server {self.host}:{self.port}: {e}")
 
     def _log_local(self, level, message):
-        """פונקציית לוג מקומית לשימוש פנימי בלבד (במקרה של כשל בחיבור)."""
+        """Local log function for internal use (on connection failure)."""
         print(f"[{level}] {message}", file=sys.stderr if level == "ERROR" else sys.stdout)
 
     def send_log(self, level, message):
-        """שולח הודעת לוג לשרת בפורמט JSON."""
+        """Sends a log message to the server in JSON format."""
 
-        # אם אין חיבור, נדפיס לוג מקומי במקום לשלוח
+        # If disconnected, log locally instead of sending.
         if not self.is_connected or not self.socket:
             self._log_local(level, message)
             return
 
-        # יצירת אובייקט הלוג
+        # Create the log object.
         log_entry = {
             "timestamp": datetime.now().isoformat(),
             "level": level,
             "message": message,
-            "source": "SlidingPuzzleClient"
+            "source": "HumanPuzzleClient" # Adjusted source for human client
         }
 
-        # המרה ל-JSON וקידוד לבתים, הוספת תו מפריד (כמו newline)
+        # Convert to JSON, encode, and append newline separator.
         try:
             log_message = json.dumps(log_entry).encode('utf-8') + b'\n'
             self.socket.sendall(log_message)
@@ -64,16 +66,15 @@ class SocketLogger:
             self._log_local("ERROR", f"Socket error while sending log: {e}. Connection lost.")
 
 
-# הגדרת אובייקט הלוגר הגלובלי (או כחלק מהמחלקה הראשית)
-# הערה: נשתמש ב-None זמנית, ונתחל אותו בתוך __init__ של SlidingPuzzle
+# Define the global logger object.
 GLOBAL_LOGGER = None
 
 
-# פונקציות עטיפה (Wrapper Functions) ללוגינג
+# Wrapper Functions for logging
 def custom_log(level, message, *args):
-    """פונקציה גנרית לשליחת לוגים באמצעות ה-SocketLogger."""
+    """Generic function to send logs via SocketLogger."""
     if GLOBAL_LOGGER:
-        # עיבוד ה-message עם ה-args כפי ש-logging היה עושה
+        # Format message with args similar to the standard logging module.
         formatted_message = message % args if args else message
         GLOBAL_LOGGER.send_log(level, formatted_message)
 
@@ -98,14 +99,12 @@ class SlidingPuzzle:
     # ==================== init (VIEW) ==================== #
     def __init__(self, parent):
 
-        # *** שינוי 1: אתחול ה-SocketLogger ***
-        # הגדרת פרטי השרת
+        # SocketLogger initialization
         SERVER_HOST = '127.0.0.1'
         SERVER_PORT = 8080
 
         global GLOBAL_LOGGER
         GLOBAL_LOGGER = SocketLogger(SERVER_HOST, SERVER_PORT)
-        # --------------------------------------------------
 
         # Initial setup
         self.move_count = 0
@@ -128,13 +127,12 @@ class SlidingPuzzle:
         control_frame = tk.Frame(self.frame)
         control_frame.pack()
 
-        # width/height
+        # width/height sliders
         tk.Label(control_frame, text="Width").grid(row=0, column=0)
         self.width_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
-        # tk.Label(control_frame, text="Height").grid(row=1, column=0)
         tk.Label(control_frame, text="Size").grid(row=1, column=0)
         self.height_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
@@ -144,12 +142,9 @@ class SlidingPuzzle:
         tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
                                                                                      sticky="ew", padx=5)
 
-        # DEBUG
-        # tk.Button(control_frame, text="Generate Solvable", command=self.generate_solvable).grid(row=2, column=1, sticky="ew", padx=5)
-
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
-        # Human/Computer specific controls
+        # Board frame
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
 
@@ -173,7 +168,6 @@ class SlidingPuzzle:
     def save_state(self):
         self.memento_stack.append(deepcopy(self.board))
         self.redo_stack.clear()
-        # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
         debug("State saved. Stack size: %d", len(self.memento_stack))
 
     def undo(self):
@@ -181,10 +175,8 @@ class SlidingPuzzle:
             self.redo_stack.append(deepcopy(self.board))
             self.board = self.memento_stack.pop()
             self.draw_board()
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Undo performed. Remaining states: %d", len(self.memento_stack))
         else:
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Undo attempted but undo stack is empty")
 
     def redo(self):
@@ -192,10 +184,8 @@ class SlidingPuzzle:
             self.memento_stack.append(deepcopy(self.board))
             self.board = self.redo_stack.pop()
             self.draw_board()
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Redo performed. Remaining redo states: %d", len(self.redo_stack))
         else:
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Redo attempted but redo stack is empty")
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
@@ -215,7 +205,6 @@ class SlidingPuzzle:
         self.save_state()
         self.draw_board()
         self.move_count = 0
-        # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
@@ -238,7 +227,6 @@ class SlidingPuzzle:
         self.save_state()
         self.draw_board()
         self.move_count = 0
-        # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
@@ -266,15 +254,12 @@ class SlidingPuzzle:
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
             self.update_two_buttons(er, ec, r, c)
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
             if self.is_solved_board(board=self.board):
-                # *** שינוי 2: החלפת logging.info ב-info (פונקציית Wrapper) ***
                 info("Puzzle solved in %d moves", self.move_count)
                 self.draw_board()
                 self.lock_board()
         else:
-            # *** שינוי 2: החלפת logging.debug ב-debug (פונקציית Wrapper) ***
             debug("Illegal move attempted: (%d, %d)", r, c)
 
     def perform_move(self, move):
@@ -288,7 +273,6 @@ class SlidingPuzzle:
         elif move == "LEFT" and ec - 1 >= 0:
             self.move(er, ec - 1)
 
-    # פונקציית traversal נשארה ללא שינוי...
     def traversal(self, width, height):
         # Initialize the matrix numbers sequentially
         matrix = [[r * width + c + 1 for c in range(width)] for r in range(height)]
@@ -310,7 +294,7 @@ class SlidingPuzzle:
                     result.append((matrix[r][left], False))
                 left += 1
 
-        # Now it's square; do row/column traversal (top to bottom rows, left to right columns)
+        # Now it's square; do row/column traversal
         while top <= bottom and left <= right:
             # Take top row
             for c in range(left, right + 1):
@@ -337,10 +321,9 @@ class SlidingPuzzle:
         return result
 
     # ==================== Drawing (VIEW) ==================== #
-    # ... שאר הפונקציות ב-SlidingPuzzle נשארו ללא שינוי, למעט שינוי ייבוא ...
 
     def draw_board(self):
-        # Calculate button size
+        # Calculate button size and font dynamically
         max_button_width = max(3, 30 // self.width)
         max_button_height = max(2, 20 // self.height)
         button_width = min(max_button_width, 8)
@@ -349,7 +332,7 @@ class SlidingPuzzle:
 
         import colorsys
 
-        # Generate traversal order
+        # Generate traversal order for color mapping
         traversal_order = self.traversal(self.width, self.height)
         val_to_pos = {val: i for i, (val, _) in enumerate(traversal_order)}
         max_pos = len(traversal_order) - 1
@@ -459,7 +442,7 @@ class SlidingPuzzle:
                 btn.config(state=tk.DISABLED)
         self.undo_button.config(state=tk.DISABLED)
         self.redo_button.config(state=tk.DISABLED)
-        # Re-enable control buttons and reset solve button
+        # Re-enable control buttons
         for child in self.frame.winfo_children():
             for widget in child.winfo_children():
                 if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
@@ -468,18 +451,12 @@ class SlidingPuzzle:
 
 if __name__ == "__main__":
 
-    # *** שינוי 3: הסרת ייבוא logging והגדרת basicConfig ***
-    # השימוש ב-logging הוסר מהייבוא.
-    # logging.basicConfig(...) הוסר.
-    # --------------------------------------------------------
-
     root = tk.Tk()
     root.title("Sliding Puzzle")
     root.geometry("800x900")
     puzzle = SlidingPuzzle(root)
 
-
-    # הוספת טיפול לסגירת חלון כדי לסגור את ה-socket
+    # Handle window close event to ensure socket cleanup.
     def on_closing():
         global GLOBAL_LOGGER
         if GLOBAL_LOGGER and GLOBAL_LOGGER.is_connected:
