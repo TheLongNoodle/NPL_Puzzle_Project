@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="d9cbb898-15a3-41d8-a8c0-37cc60081c60" name="Changes" comment="" />
+    <list default="true" id="d9cbb898-15a3-41d8-a8c0-37cc60081c60" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client_Computer.py" beforeDir="false" afterPath="$PROJECT_DIR$/client_Computer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/client_Human.py" beforeDir="false" afterPath="$PROJECT_DIR$/client_Human.py" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -91,7 +95,8 @@
       <option name="presentableId" value="Default" />
       <updated>1765916238610</updated>
       <workItem from="1765916240619" duration="3874000" />
-      <workItem from="1765920167264" duration="635000" />
+      <workItem from="1765920167264" duration="1208000" />
+      <workItem from="1766053941570" duration="8755000" />
     </task>
     <servers />
   </component>
@@ -100,6 +105,6 @@
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/NPL_Puzzle_Project$client_Human.coverage" NAME="client_Human Coverage Results" MODIFIED="1765919363954" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
-    <SUITE FILE_PATH="coverage/NPL_Puzzle_Project$server.coverage" NAME="server Coverage Results" MODIFIED="1765920526952" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/NPL_Puzzle_Project$server.coverage" NAME="server Coverage Results" MODIFIED="1766066675217" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -22,6 +22,7 @@ class SocketLogger:
         self.is_connected = False
         self.connect_to_server()
 
+
     def connect_to_server(self):
         """Attempts to establish connection with the log server."""
         try:
@@ -37,6 +38,22 @@ class SocketLogger:
             self.is_connected = False
             self.socket = None
             self._log_local("ERROR", f"Failed to connect to log server {self.host}:{self.port}: {e}")
+
+    def send_protocol_message(self, msg_type, **kwargs):
+        """Sends structured protocol messages like 'connect' or 'stats'."""
+        if not self.is_connected or not self.socket:
+            return
+
+        payload = {"type": msg_type}
+        payload.update(kwargs)
+
+        try:
+            # We must add the \n because your server.py uses buffer.split('\n')
+            message = json.dumps(payload) + '\n'
+            self.socket.sendall(message.encode('utf-8'))
+        except socket.error as e:
+            self.is_connected = False
+            self._log_local("ERROR", f"Protocol send failed: {e}")
 
     def _log_local(self, level, message):
         """Local log function for internal use (on connection failure)."""
@@ -108,6 +125,7 @@ class SlidingPuzzle:
 
         global GLOBAL_LOGGER
         GLOBAL_LOGGER = SocketLogger(SERVER_HOST, SERVER_PORT)
+        GLOBAL_LOGGER.send_protocol_message("connect", client_type="computer")
 
         # Initial setup
         self.move_count = 0
@@ -165,6 +183,10 @@ class SlidingPuzzle:
         self.solvable_label = tk.Label(bottom_frame, text="", font=("Arial", 12, "bold"))
         self.solvable_label.pack(side=tk.LEFT, padx=20)
 
+        # --- NEW VARIABLES TO ADD ---
+        self.is_locked = False  # The "State Guard" flag
+        self.start_time = datetime.now()  # The start timestamp
+
         self.generate_solvable()
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
@@ -183,6 +205,9 @@ class SlidingPuzzle:
         self.move_count = 0
         self.enable_all_buttons
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        self.is_locked = False  # Reset the lock for the new game
+        self.start_time = datetime.now()  # Reset the timer for the new game
+        self.draw_board()
 
     def generate_solvable(self):
         self.width = self.width_slider.get()
@@ -203,6 +228,9 @@ class SlidingPuzzle:
         self.move_count = 0
         self.enable_all_buttons
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+        self.is_locked = False  # Reset the lock for the new game
+        self.start_time = datetime.now()  # Reset the timer for the new game
+        self.draw_board()
 
     def is_solvable(self, nums):
         inv = 0
@@ -767,16 +795,39 @@ class SlidingPuzzle:
         return board == target
 
     def lock_board(self):
+        # 1. THE GUARD: Prevent duplicate execution (fixes the computer-mode double stats)
+        if self.is_locked:
+            return
+        self.is_locked = True
+
+        # 2. THE TIMER: Calculate actual seconds elapsed
+        # Note: self.start_time must be set in __init__ and generate methods
+        duration = (datetime.now() - self.start_time).total_seconds()
+
+        # 3. THE UI: Disable the game grid
         for row in self.buttons:
             for btn in row:
                 btn.config(state=tk.DISABLED)
-        # Re-enable control buttons and reset solve button
-        self.solve_button.config(text="Solve", state=tk.DISABLED)
+
+        # 4. THE CONTROLS: Handle specific buttons for each client type
+        if hasattr(self, 'solve_button'):
+            self.solve_button.config(text="Solve", state=tk.DISABLED)
+
+        # Re-enable the "Generate" buttons so the user can play again
         for child in self.frame.winfo_children():
             for widget in child.winfo_children():
                 if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
                     widget.config(state=tk.NORMAL)
 
+        # 5. THE NETWORK: Send the finalized data to the Server
+        if GLOBAL_LOGGER:
+            # We round to 2 decimal places for a cleaner report
+            GLOBAL_LOGGER.send_protocol_message(
+                "stats",
+                moves=self.move_count,
+                time=round(duration, 2),
+                solved=True
+            )
     def log_board(self, board=None):
         if board is None:
             board = self.board
