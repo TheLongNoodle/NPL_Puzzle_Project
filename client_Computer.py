@@ -136,13 +136,24 @@ class SlidingPuzzle:
         self.memento_stack = []
         self.redo_stack = []
 
-        self.width = 9
-        self.height = 9
+        self.width = 3
+        self.height = 3
         self.board = []
         self.buttons = []
 
         self.solver_thread = None
         self.abort_solver = False
+
+        self.speed_states = [
+            ("0.1x", 1000),
+            ("0.25x", 400),
+            ("0.5x", 200),
+            ("1x", 100),
+            ("10x", 10),
+            ("25x", 4),
+            ("50x", 2),
+            ("100x", 1),
+        ]
 
         # --- Controls ---
         control_frame = tk.Frame(self.frame)
@@ -166,28 +177,53 @@ class SlidingPuzzle:
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
         # Computer specific controls
-        tk.Label(control_frame, text="Speed").grid(row=4, column=0)
-        self.speed_slider = tk.Scale(control_frame, from_=1, to=750, orient=tk.HORIZONTAL, length=300)
-        self.speed_slider.set(100)
+        self.speed_label = tk.Label(control_frame, text="Speed (1x)")
+        self.speed_label.grid(row=4, column=0)
+
+        self.speed_slider = tk.Scale(
+            control_frame,
+            from_=0,
+            to=len(self.speed_states) - 1,
+            orient=tk.HORIZONTAL,
+            length=300,
+            showvalue=False,
+            command=self.on_speed_change
+        )
+        self.speed_slider.set(3)  # default = "1x"
         self.speed_slider.grid(row=4, column=1)
 
         self.solve_button = tk.Button(control_frame, text="Solve", command=self.toggle_solver, width=24)
         self.solve_button.grid(row=5, column=0, columnspan=2, pady=10)
 
-        self.board_frame = tk.Frame(self.frame)
-        self.board_frame.pack()
-
-        # Solvability label
         bottom_frame = tk.Frame(self.frame)
         bottom_frame.pack(pady=10)
+
+        self.moves_label = tk.Label(bottom_frame, text="Moves: 0", font=("Arial", 11))
+        self.moves_label.pack(side=tk.LEFT, padx=15)
+
         self.solvable_label = tk.Label(bottom_frame, text="", font=("Arial", 12, "bold"))
         self.solvable_label.pack(side=tk.LEFT, padx=20)
+
+        self.timer_label = tk.Label(bottom_frame, text="Time: 0.0s", font=("Arial", 11))
+        self.timer_label.pack(side=tk.LEFT, padx=15)
+
+
+        self.board_frame = tk.Frame(self.frame)
+        self.board_frame.pack()
 
         # --- NEW VARIABLES TO ADD ---
         self.is_locked = False  # The "State Guard" flag
         self.start_time = datetime.now()  # The start timestamp
 
+        self.update_timer()
+
         self.generate_solvable()
+
+    def on_speed_change(self, value):
+        idx = int(value)
+        label, real_value = self.speed_states[idx]
+        self.current_speed = real_value
+        self.speed_label.config(text=f"Speed: {label}")
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
     def generate_random(self):
@@ -203,6 +239,7 @@ class SlidingPuzzle:
         self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.draw_board()
         self.move_count = 0
+        self.moves_label.config(text=f"Moves: {self.move_count}")
         self.enable_all_buttons
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
         self.is_locked = False  # Reset the lock for the new game
@@ -226,6 +263,7 @@ class SlidingPuzzle:
         self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.draw_board()
         self.move_count = 0
+        self.moves_label.config(text=f"Moves: {self.move_count}")
         self.enable_all_buttons
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
         self.is_locked = False  # Reset the lock for the new game
@@ -255,6 +293,7 @@ class SlidingPuzzle:
         if abs(er - r) + abs(ec - c) == 1:
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
+            self.moves_label.config(text=f"Moves: {self.move_count}")
             self.update_two_buttons(er, ec, r, c)
             debug("Tile moved: (%d, %d) -> (%d, %d)", r, c, er, ec)
             if self.is_solved_board(board=self.board):
@@ -323,6 +362,11 @@ class SlidingPuzzle:
         return result
 
     # ==================== Drawing (VIEW) ==================== #
+    def update_timer(self):
+        if not self.is_locked:
+            elapsed = (datetime.now() - self.start_time).total_seconds()
+            self.timer_label.config(text=f"Time: {elapsed:.1f}s")
+        self.parent.after(100, self.update_timer)
 
     def draw_board(self):
         # Calculate button size and font dynamically
@@ -781,10 +825,10 @@ class SlidingPuzzle:
 
         # If this was the last move, lock the board after animation completes
         if not moves:
-            delay = self.speed_slider.get()
+            delay = self.current_speed
             self.parent.after(delay, self.lock_board)
         else:
-            delay = self.speed_slider.get()
+            delay = self.current_speed
             self.parent.after(delay, lambda: self.animate_solution(moves))
 
     def is_solved_board(self, board=None):

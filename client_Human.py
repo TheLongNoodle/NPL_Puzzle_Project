@@ -115,8 +115,8 @@ class SlidingPuzzle:
         self.memento_stack = []
         self.redo_stack = []
 
-        self.width = 9
-        self.height = 9
+        self.width = 3
+        self.height = 3
         self.board = []
         self.buttons = []
 
@@ -132,12 +132,12 @@ class SlidingPuzzle:
         control_frame.pack()
 
         tk.Label(control_frame, text="Width").grid(row=0, column=0)
-        self.width_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
+        self.width_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
-        tk.Label(control_frame, text="Size").grid(row=1, column=0)
-        self.height_slider = tk.Scale(control_frame, from_=3, to=25, orient=tk.HORIZONTAL, length=300)
+        tk.Label(control_frame, text="Height").grid(row=1, column=0)
+        self.height_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
@@ -145,20 +145,33 @@ class SlidingPuzzle:
                                                                                      sticky="ew", padx=5)
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
-        self.board_frame = tk.Frame(self.frame)
-        self.board_frame.pack()
-
         bottom_frame = tk.Frame(self.frame)
         bottom_frame.pack(pady=10)
 
-        self.undo_button = tk.Button(bottom_frame, text="Undo", command=self.undo)
-        self.undo_button.pack(side=tk.LEFT, padx=10)
+        self.moves_label = tk.Label(bottom_frame, text="Moves: 0", font=("Arial", 11))
+        self.moves_label.pack(side=tk.LEFT, padx=15)
 
         self.solvable_label = tk.Label(bottom_frame, text="", font=("Arial", 12, "bold"))
         self.solvable_label.pack(side=tk.LEFT, padx=20)
 
-        self.redo_button = tk.Button(bottom_frame, text="Redo", command=self.redo)
+        self.timer_label = tk.Label(bottom_frame, text="Time: 0.0s", font=("Arial", 11))
+        self.timer_label.pack(side=tk.LEFT, padx=15)
+
+
+        self.board_frame = tk.Frame(self.frame)
+        self.board_frame.pack()
+
+
+        undo_frame = tk.Frame(self.frame)
+        undo_frame.pack(pady=10)
+
+        self.undo_button = tk.Button(undo_frame, text="Undo", command=self.undo)
+        self.undo_button.pack(side=tk.LEFT, padx=10)
+
+        self.redo_button = tk.Button(undo_frame, text="Redo", command=self.redo)
         self.redo_button.pack(side=tk.LEFT, padx=10)
+
+        self.update_timer()
 
         self.generate_solvable()
 
@@ -171,12 +184,17 @@ class SlidingPuzzle:
         if self.memento_stack:
             self.redo_stack.append(deepcopy(self.board))
             self.board = self.memento_stack.pop()
+            if(self.move_count != 0):
+                self.move_count -= 1
+            self.moves_label.config(text=f"Moves: {self.move_count}")
             self.draw_board()
 
     def redo(self):
         if self.redo_stack:
             self.memento_stack.append(deepcopy(self.board))
             self.board = self.redo_stack.pop()
+            self.move_count += 1
+            self.moves_label.config(text=f"Moves: {self.move_count}")
             self.draw_board()
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
@@ -200,6 +218,8 @@ class SlidingPuzzle:
         self.save_state()
         self.draw_board()
         self.move_count = 0
+        self.moves_label.config(text="Moves: 0")
+        self.timer_label.config(text="Time: 0.0s")
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def generate_solvable(self):
@@ -226,6 +246,8 @@ class SlidingPuzzle:
         self.save_state()
         self.draw_board()
         self.move_count = 0
+        self.moves_label.config(text="Moves: 0")
+        self.timer_label.config(text="Time: 0.0s")
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
 
     def is_solvable(self, nums):
@@ -256,6 +278,7 @@ class SlidingPuzzle:
             self.save_state()
             self.board[er][ec], self.board[r][c] = self.board[r][c], self.board[er][ec]
             self.move_count += 1
+            self.moves_label.config(text=f"Moves: {self.move_count}")
             self.update_two_buttons(er, ec, r, c)
             if self.is_solved_board(board=self.board):
                 info("Puzzle solved in %d moves", self.move_count)
@@ -288,6 +311,12 @@ class SlidingPuzzle:
         return result
 
     # ==================== Drawing (VIEW) ==================== #
+    def update_timer(self):
+        if not self.is_locked:
+            elapsed = (datetime.now() - self.start_time).total_seconds()
+            self.timer_label.config(text=f"Time: {elapsed:.1f}s")
+        self.parent.after(100, self.update_timer)
+    
     def draw_board(self):
         max_button_width = max(3, 30 // self.width)
         max_button_height = max(2, 20 // self.height)
