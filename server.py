@@ -113,6 +113,7 @@ class ServerView:
         self.root = root
         self.root.title("N-Puzzle Server Hub")
         self.root.geometry("500x400")
+        self.stats_window = None
 
         # --- Header ---
         lbl_title = tk.Label(root, text="N-Puzzle Game Server", font=("Arial", 16, "bold"))
@@ -159,6 +160,41 @@ class ServerView:
 
     def show_error(self, title, message):
         messagebox.showerror(title, message)
+
+    def show_statistics_window(self, stats_text):
+        # Singleton check
+        if self.stats_window and self.stats_window.winfo_exists():
+            self.stats_window.lift()
+            self.stats_window.focus_force()
+            logging.warning("Statistics window already open (singleton enforced).")
+            return
+
+        self.stats_window = tk.Toplevel(self.root)
+        self.stats_window.title("Game Statistics")
+        self.stats_window.geometry("400x300")
+
+        # Handle close
+        self.stats_window.protocol("WM_DELETE_WINDOW", self._close_stats_window)
+
+        # Text area
+        text_area = scrolledtext.ScrolledText(
+            self.stats_window,
+            wrap=tk.WORD,
+            state='normal'
+        )
+        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+        text_area.insert(tk.END, stats_text)
+        text_area.config(state='disabled')
+
+        logging.info("Statistics window opened.")
+
+    def _close_stats_window(self):
+        logging.info("Statistics window closed.")
+        self.stats_window.destroy()
+        self.stats_window = None
+
+
 
 
 class ServerController:
@@ -291,7 +327,7 @@ class ServerController:
         """
         # 1. Singleton Check
         if self.model.is_client_active(client_type):
-            self.view.show_error("Action Denied", f"A {client_type} game is already running!")
+            logging.error(f"Singleton violation: {client_type} client is already running.")
             return
 
         # 2. Set Active Flag
@@ -326,7 +362,7 @@ class ServerController:
 
     def show_statistics(self):
         stats_text = self.model.get_formatted_stats()
-        self.view.show_alert("Game Statistics", stats_text)
+        self.view.show_statistics_window(stats_text)
 
     def on_close(self):
         logging.info("Shutting down server.")
