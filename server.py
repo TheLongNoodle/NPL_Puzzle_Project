@@ -56,8 +56,8 @@ class ServerModel:
 
     def __init__(self):
         self.stats = {
-            'human': {'games': 0, 'moves': [], 'time': []},
-            'computer': {'games': 0, 'moves': [], 'time': []}
+            'human': {},     # (rows, cols) -> {games, moves[], time[]}
+            'computer': {}
         }
         # Singleton flags to track active clients
         self.active_clients = {
@@ -66,33 +66,33 @@ class ServerModel:
         }
         self.lock = threading.Lock()
 
-    def update_stats(self, client_type, moves, time_taken, solved):
+    def update_stats(self, client_type, rows, cols, moves, time_taken, solved):
         if not solved:
             return
 
+        key = (rows, cols)
+
         with self.lock:
-            if client_type in self.stats:
-                self.stats[client_type]['games'] += 1
-                self.stats[client_type]['moves'].append(moves)
-                self.stats[client_type]['time'].append(time_taken)
+            if key not in self.stats[client_type]:
+                self.stats[client_type][key] = {
+                    'games': 0,
+                    'moves': [],
+                    'time': []
+                }
+
+            entry = self.stats[client_type][key]
+            entry['games'] += 1
+            entry['moves'].append(moves)
+            entry['time'].append(time_taken)
 
     def get_formatted_stats(self):
         with self.lock:
             report = ""
-            for p_type, data in self.stats.items():
-                count = data['games']
-                if count > 0:
-                    avg_moves = sum(data['moves']) / count
-                    avg_time = sum(data['time']) / count
-                else:
-                    avg_moves = 0
-                    avg_time = 0
-
-                report += f"--- {p_type.upper()} PLAYER ---\n"
-                report += f"Total Games Solved: {count}\n"
-                report += f"Avg Moves: {avg_moves:.2f}\n"
-                report += f"Avg Time: {avg_time:.2f}s\n\n"
+            report += self.build_matrix_report('human')
+            report += "\n"
+            report += self.build_matrix_report('computer')
             return report
+
 
     def set_client_active(self, client_type, status):
         with self.lock:
@@ -101,6 +101,34 @@ class ServerModel:
     def is_client_active(self, client_type):
         with self.lock:
             return self.active_clients.get(client_type, False)
+        
+    def build_matrix_report(self, client_type):
+        data = self.stats[client_type]
+
+        if not data:
+            return f"No data for {client_type}\n"
+
+        sizes = sorted(data.keys())
+        rows_set = sorted(set(r for r, c in sizes))
+        cols_set = sorted(set(c for r, c in sizes))
+
+        report = f"\n=== {client_type.upper()} PLAYER ===\n"
+        report += "      " + "".join(f"{c:^18}" for c in cols_set) + "\n"
+
+        for r in rows_set:
+            report += f"{r:<4} "
+            for c in cols_set:
+                cell = data.get((r, c))
+                if cell:
+                    avg_moves = sum(cell['moves']) / cell['games']
+                    avg_time = sum(cell['time']) / cell['games']
+                    report += f"{avg_moves:.1f}m/{avg_time:.1f}s".center(18)
+                else:
+                    report += " - ".center(18)
+            report += "\n"
+
+        return report
+
 
 
 class ServerView:
@@ -294,10 +322,13 @@ class ServerController:
 
                                 self.model.update_stats(
                                     client_type,
+                                    msg.get('rows'),
+                                    msg.get('cols'),
                                     msg.get('moves'),
                                     msg.get('time'),
                                     msg.get('solved')
                                 )
+
                                 logging.info(f"Stats received from {client_type}")
 
                             elif msg_type == 'disconnect':

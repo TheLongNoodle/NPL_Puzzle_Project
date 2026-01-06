@@ -410,7 +410,7 @@ class SlidingPuzzle:
                     widget.config(state=tk.NORMAL)
 
         if GLOBAL_LOGGER:
-            GLOBAL_LOGGER.send_protocol_message("stats", moves=self.move_count, time=round(duration, 2), solved=True)
+            GLOBAL_LOGGER.send_protocol_message("stats", rows=self.height, cols=self.width, moves=self.move_count, time=round(duration, 2), solved=True)
 
 
 if __name__ == "__main__":

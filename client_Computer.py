@@ -866,12 +866,7 @@ class SlidingPuzzle:
         # 5. THE NETWORK: Send the finalized data to the Server
         if GLOBAL_LOGGER:
             # We round to 2 decimal places for a cleaner report
-            GLOBAL_LOGGER.send_protocol_message(
-                "stats",
-                moves=self.move_count,
-                time=round(duration, 2),
-                solved=True
-            )
+            GLOBAL_LOGGER.send_protocol_message("stats", rows=self.height, cols=self.width, moves=self.move_count, time=round(duration, 2), solved=True)
     def log_board(self, board=None):
         if board is None:
             board = self.board
