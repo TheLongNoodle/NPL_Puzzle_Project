@@ -161,12 +161,12 @@ class SlidingPuzzle:
 
         # width/height sliders
         tk.Label(control_frame, text="Width").grid(row=0, column=0)
-        self.width_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
+        self.width_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
         tk.Label(control_frame, text="Height").grid(row=1, column=0)
-        self.height_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
+        self.height_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
@@ -211,9 +211,11 @@ class SlidingPuzzle:
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
 
-        # --- NEW VARIABLES TO ADD ---
-        self.is_locked = False  # The "State Guard" flag
-        self.start_time = datetime.now()  # The start timestamp
+        # --- Timer Logic Variables ---
+        self.is_locked = False
+        self.is_timer_running = False  # Track if solver is active
+        self.elapsed_time = 0  # Cumulative seconds
+        self.last_start_time = None  # Last time 'Solve' was pressed
 
         self.update_timer()
 
@@ -227,6 +229,16 @@ class SlidingPuzzle:
 
     # ==================== Puzzle Generation (CONTROLLER) ==================== #
     def generate_random(self):
+        # Reset timer and game state only for a new game
+        self.elapsed_time = 0
+        self.is_timer_running = False
+        self.last_start_time = None
+        self.is_locked = False  # This allows update_timer to start running again
+        self.move_count = 0
+
+        # IMPORTANT: Restart the timer loop because it was stopped in lock_board
+        self.update_timer()
+
         self.width = self.width_slider.get()
         self.height = self.height_slider.get()
         nums = list(range(1, self.width * self.height)) + [0]
@@ -247,6 +259,17 @@ class SlidingPuzzle:
         self.draw_board()
 
     def generate_solvable(self):
+        # Reset timer and game state only for a new game
+        self.elapsed_time = 0
+        self.is_timer_running = False
+        self.last_start_time = None
+        self.is_locked = False  # This allows update_timer to start running again
+        self.move_count = 0
+
+        # IMPORTANT: Restart the timer loop because it was stopped in lock_board
+        self.update_timer()
+
+
         self.width = self.width_slider.get()
         self.height = self.height_slider.get()
         nums = list(range(1, self.width * self.height)) + [0]
@@ -363,10 +386,26 @@ class SlidingPuzzle:
 
     # ==================== Drawing (VIEW) ==================== #
     def update_timer(self):
-        if not self.is_locked:
-            elapsed = (datetime.now() - self.start_time).total_seconds()
-            self.timer_label.config(text=f"Time: {elapsed:.1f}s")
-        self.parent.after(100, self.update_timer)
+        """Updates the display. If locked, the loop terminates to freeze the time."""
+        if self.is_locked:
+            return
+
+        display_time = self.elapsed_time
+        if self.is_timer_running and self.last_start_time:
+            session_seconds = (datetime.now() - self.last_start_time).total_seconds()
+            display_time += session_seconds
+
+        try:
+            self.timer_label.config(text=f"Time: {display_time:.1f}s")
+        except:
+            return  # Stop if widget is destroyed
+
+        # Clear any existing 'after' calls to prevent speed-up bugs
+        if hasattr(self, '_timer_after_id'):
+            self.parent.after_cancel(self._timer_after_id)
+
+        # Schedule the next update and save its ID
+        self._timer_after_id = self.parent.after(100, self.update_timer)
 
     def draw_board(self):
         # Calculate button size and font dynamically
@@ -481,13 +520,21 @@ class SlidingPuzzle:
     # ==================== Solver (MODEL) ==================== #
     def toggle_solver(self):
         if self.solve_button.cget("text") == "Abort":
-            # Abort requested
-            info("Abort requested")
-            self.abort_solver = True  # this will stop both solver and animation
+            # PAUSE TIMER ON ABORT
+            info("Abort requested - Timer paused")
+            self.abort_solver = True
+            self.is_timer_running = False
+
+            # Save the time gathered in this session
+            if self.last_start_time:
+                self.elapsed_time += (datetime.now() - self.last_start_time).total_seconds()
             return
         else:
-            # Start solver
+            # START/RESUME TIMER ON SOLVE
             self.abort_solver = False
+            self.is_timer_running = True
+            self.last_start_time = datetime.now()  # Mark start point
+
             self.disable_buttons_for_solver()
             self.solve_button.config(text="Abort")
             self.solver_thread = threading.Thread(target=self.solve_puzzle, daemon=True)
@@ -839,25 +886,35 @@ class SlidingPuzzle:
         return board == target
 
     def lock_board(self):
-        # 1. THE GUARD: Prevent duplicate execution (fixes the computer-mode double stats)
+        """
+        Finalizes the puzzle session. Stops the timer, disables interaction,
+        calculates total solving time, and reports stats to the server.
+        """
+        # 1. THE GUARD: Prevent duplicate execution
         if self.is_locked:
             return
         self.is_locked = True
 
+        # --- Timer Management Addition ---
+        # Stops the background timer logic from calculating further sessions
+        self.is_timer_running = False
+
         # 2. THE TIMER: Calculate actual seconds elapsed
-        # Note: self.start_time must be set in __init__ and generate methods
-        duration = (datetime.now() - self.start_time).total_seconds()
+        # Computes total time: Time accumulated before previous Aborts + time from current session
+        total_final_time = self.elapsed_time
+        if self.last_start_time:
+            total_final_time += (datetime.now() - self.last_start_time).total_seconds()
 
         # 3. THE UI: Disable the game grid
         for row in self.buttons:
             for btn in row:
                 btn.config(state=tk.DISABLED)
 
-        # 4. THE CONTROLS: Handle specific buttons for each client type
+        # 4. THE CONTROLS: Handle specific buttons
         if hasattr(self, 'solve_button'):
             self.solve_button.config(text="Solve", state=tk.DISABLED)
 
-        # Re-enable the "Generate" buttons so the user can play again
+        # Re-enable the "Generate" buttons for the next game
         for child in self.frame.winfo_children():
             for widget in child.winfo_children():
                 if isinstance(widget, tk.Button) and widget.cget("text") in ("Generate", "Generate Solvable"):
@@ -865,8 +922,15 @@ class SlidingPuzzle:
 
         # 5. THE NETWORK: Send the finalized data to the Server
         if GLOBAL_LOGGER:
-            # We round to 2 decimal places for a cleaner report
-            GLOBAL_LOGGER.send_protocol_message("stats", rows=self.height, cols=self.width, moves=self.move_count, time=round(duration, 2), solved=True)
+            # Using the new total_final_time variable instead of a single duration
+            GLOBAL_LOGGER.send_protocol_message(
+                "stats",
+                rows=self.height,
+                cols=self.width,
+                moves=self.move_count,
+                time=round(total_final_time, 2),
+                solved=True
+            )
     def log_board(self, board=None):
         if board is None:
             board = self.board

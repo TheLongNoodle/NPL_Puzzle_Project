@@ -132,12 +132,12 @@ class SlidingPuzzle:
         control_frame.pack()
 
         tk.Label(control_frame, text="Width").grid(row=0, column=0)
-        self.width_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
+        self.width_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
         tk.Label(control_frame, text="Height").grid(row=1, column=0)
-        self.height_slider = tk.Scale(control_frame, from_=3, to=10, orient=tk.HORIZONTAL, length=300)
+        self.height_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
