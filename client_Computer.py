@@ -23,6 +23,7 @@ class SocketLogger:
         self.connect_to_server()
 
 
+
     def connect_to_server(self):
         """Attempts to establish connection with the log server."""
         try:
@@ -132,6 +133,10 @@ class SlidingPuzzle:
         self.parent = parent
         self.frame = tk.Frame(parent)
         self.frame.pack()
+
+        self.solver_timeout = 7  # seconds
+        self.solver_start_time = None
+        self.solver_watchdog_id = None
 
         self.memento_stack = []
         self.redo_stack = []
@@ -530,17 +535,29 @@ class SlidingPuzzle:
             # Save the time gathered in this session
             if self.last_start_time:
                 self.elapsed_time += (datetime.now() - self.last_start_time).total_seconds()
+
+            # Cancel watchdog
+            if self.solver_watchdog_id:
+                self.parent.after_cancel(self.solver_watchdog_id)
+                self.solver_watchdog_id = None
             return
         else:
-            # START/RESUME TIMER ON SOLVE
+            # START TIMER + SOLVER
             self.abort_solver = False
             self.is_timer_running = True
-            self.last_start_time = datetime.now()  # Mark start point
+            self.last_start_time = datetime.now()
+            self.solver_start_time = datetime.now()
 
             self.disable_buttons_for_solver()
             self.solve_button.config(text="Abort")
+
+            # Start solver thread
             self.solver_thread = threading.Thread(target=self.solve_puzzle, daemon=True)
             self.solver_thread.start()
+
+            # Start 15s watchdog
+            self.start_solver_watchdog()
+
 
     def disable_buttons_for_solver(self):
         for row in self.buttons:
@@ -564,6 +581,36 @@ class SlidingPuzzle:
                 if isinstance(widget, tk.Button):
                     widget.config(state=tk.NORMAL)
         self.solve_button.config(text="Solve")
+
+    def start_solver_watchdog(self):
+        """Stops solver if it exceeds time limit."""
+        def watchdog():
+            if self.abort_solver:
+                return
+
+            elapsed = (datetime.now() - self.solver_start_time).total_seconds()
+            if elapsed >= self.solver_timeout:
+                # TIMEOUT
+                self.abort_solver = True
+                error("Solver Won't solve in the time specified")   # log message
+
+                # Stop timer
+                self.is_timer_running = False
+                if self.last_start_time:
+                    self.elapsed_time += (datetime.now() - self.last_start_time).total_seconds()
+
+                # UI reset safely in main thread
+                self.parent.after(0, self.on_solver_failed)
+            else:
+                # Re-check after 100ms
+                self.solver_watchdog_id = self.parent.after(100, watchdog)
+
+        self.solver_watchdog_id = self.parent.after(100, watchdog)
+
+    def on_solver_failed(self):
+        info("Aborting solver")
+        self.solve_button.config(text="Solve")
+        self.enable_all_buttons()
 
     def solve_puzzle_astar(self, board):
         width = len(board[0])
@@ -852,6 +899,12 @@ class SlidingPuzzle:
         self.abort_solver = False
         try:
             moves = self.solve_puzzle_human(self.board)
+
+            # Cancel watchdog
+            if self.solver_watchdog_id:
+                self.parent.after_cancel(self.solver_watchdog_id)
+                self.solver_watchdog_id = None
+
             # abort
             if self.abort_solver or moves is None:
                 info("Solver aborted")

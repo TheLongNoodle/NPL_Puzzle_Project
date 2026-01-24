@@ -141,7 +141,7 @@ class ServerView:
         self.controller = controller
         self.root = root
         self.root.title("N-Puzzle Server Hub")
-        self.root.geometry("500x400")
+        self.root.geometry("700x600")
         self.stats_window = None
 
         # --- Header ---
