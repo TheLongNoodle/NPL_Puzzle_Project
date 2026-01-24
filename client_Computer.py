@@ -160,12 +160,12 @@ class SlidingPuzzle:
         control_frame.pack()
 
         # width/height sliders
-        tk.Label(control_frame, text="Width").grid(row=0, column=0)
+        tk.Label(control_frame, text="Cols").grid(row=0, column=0)
         self.width_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.width_slider.set(self.width)
         self.width_slider.grid(row=0, column=1)
 
-        tk.Label(control_frame, text="Height").grid(row=1, column=0)
+        tk.Label(control_frame, text="Rows").grid(row=1, column=0)
         self.height_slider = tk.Scale(control_frame, from_=3, to=9, orient=tk.HORIZONTAL, length=300)
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
@@ -207,9 +207,11 @@ class SlidingPuzzle:
         self.timer_label = tk.Label(bottom_frame, text="Time: 0.0s", font=("Arial", 11))
         self.timer_label.pack(side=tk.LEFT, padx=15)
 
-
         self.board_frame = tk.Frame(self.frame)
         self.board_frame.pack()
+
+        undo_frame = tk.Frame(self.frame)
+        undo_frame.pack(pady=10)
 
         # --- Timer Logic Variables ---
         self.is_locked = False

@@ -88,9 +88,9 @@ class ServerModel:
     def get_formatted_stats(self):
         with self.lock:
             report = ""
-            report += self.build_matrix_report('human')
+            report += self.build_report('human')
             report += "\n"
-            report += self.build_matrix_report('computer')
+            report += self.build_report('computer')
             return report
 
 
@@ -102,30 +102,31 @@ class ServerModel:
         with self.lock:
             return self.active_clients.get(client_type, False)
         
-    def build_matrix_report(self, client_type):
+    def build_report(self, client_type):
         data = self.stats[client_type]
 
-        if not data:
-            return f"No data for {client_type}\n"
-
-        sizes = sorted(data.keys())
-        rows_set = sorted(set(r for r, c in sizes))
-        cols_set = sorted(set(c for r, c in sizes))
-
         report = f"\n=== {client_type.upper()} PLAYER ===\n"
-        report += "      " + "".join(f"{c:^18}" for c in cols_set) + "\n"
+        report += "-" * 60 + "\n"
+        report += f"{'Rows':<8}{'Cols':<8}{'Games':<10}{'Avg Time (s)':<15}{'Avg Moves':<15}\n"
+        report += "-" * 60 + "\n"
 
-        for r in rows_set:
-            report += f"{r:<4} "
-            for c in cols_set:
-                cell = data.get((r, c))
-                if cell:
-                    avg_moves = sum(cell['moves']) / cell['games']
-                    avg_time = sum(cell['time']) / cell['games']
-                    report += f"{avg_moves:.1f}m/{avg_time:.1f}s".center(18)
-                else:
-                    report += " - ".center(18)
-            report += "\n"
+        if not data:
+            report += "No data available.\n"
+            return report
+
+        # Uses SAME structure as matrix version
+        sizes = sorted(data.keys())
+
+        for (r, c) in sizes:
+            cell = data.get((r, c))
+            if not cell:
+                continue
+
+            games = cell['games']
+            avg_moves = sum(cell['moves']) / games
+            avg_time = sum(cell['time']) / games
+
+            report += f"{r:<8}{c:<8}{games:<10}{avg_time:<15.2f}{avg_moves:<15.2f}\n"
 
         return report
 
@@ -199,21 +200,22 @@ class ServerView:
 
         self.stats_window = tk.Toplevel(self.root)
         self.stats_window.title("Game Statistics")
-        self.stats_window.geometry("400x300")
+        self.stats_window.geometry("600x500")
 
         # Handle close
         self.stats_window.protocol("WM_DELETE_WINDOW", self._close_stats_window)
 
         # Text area
-        text_area = scrolledtext.ScrolledText(
+        self.stats_text_area = scrolledtext.ScrolledText(
             self.stats_window,
             wrap=tk.WORD,
             state='normal'
         )
-        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+        self.stats_text_area.pack(fill="both", expand=True, padx=10, pady=10)
 
-        text_area.insert(tk.END, stats_text)
-        text_area.config(state='disabled')
+        self.stats_text_area.insert(tk.END, stats_text)
+        self.stats_text_area.config(state='disabled')
+
 
         logging.info("Statistics window opened.")
 
@@ -221,6 +223,17 @@ class ServerView:
         logging.info("Statistics window closed.")
         self.stats_window.destroy()
         self.stats_window = None
+
+    def update_statistics_live(self, stats_text):
+        if self.stats_window and self.stats_window.winfo_exists():
+            self.root.after(0, self._update_stats_text, stats_text)
+
+    def _update_stats_text(self, stats_text):
+        if hasattr(self, 'stats_text_area'):
+            self.stats_text_area.config(state='normal')
+            self.stats_text_area.delete("1.0", tk.END)
+            self.stats_text_area.insert(tk.END, stats_text)
+            self.stats_text_area.config(state='disabled')
 
 
 
@@ -330,6 +343,10 @@ class ServerController:
                                 )
 
                                 logging.info(f"Stats received from {client_type}")
+
+                                # update stats
+                                stats_text = self.model.get_formatted_stats()
+                                self.view.update_statistics_live(stats_text)
 
                             elif msg_type == 'disconnect':
                                 logging.info(f"{client_type.capitalize()} Client disconnected.")
