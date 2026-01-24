@@ -134,6 +134,8 @@ class SlidingPuzzle:
         self.frame = tk.Frame(parent)
         self.frame.pack()
 
+        # WATCHDOG: since the algorithm is very fast, If it takes more then 7 seconds we can
+        # almost certainly assume it will take more then 120 seconds (got stuck)
         self.solver_timeout = 7  # seconds
         self.solver_start_time = None
         self.solver_watchdog_id = None
@@ -175,9 +177,14 @@ class SlidingPuzzle:
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
-        # generate buttons
-        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
-                                                                                     sticky="ew", padx=5)
+        # generate button
+        self.dimensions_changed = False  # Flag to track unsaved changes
+
+        self.width_slider.config(command=self.on_dimensions_change)
+        self.height_slider.config(command=self.on_dimensions_change)
+
+        self.generate_button = tk.Button(control_frame, text="Generate", command=self.generate_random)
+        self.generate_button.grid(row=2, column=0, columnspan=2, sticky="ew", padx=5)
 
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
@@ -259,11 +266,19 @@ class SlidingPuzzle:
         self.draw_board()
         self.move_count = 0
         self.moves_label.config(text=f"Moves: {self.move_count}")
-        self.enable_all_buttons
+        self.enable_all_buttons()
+        self.dimensions_changed = False
+        self.generate_button.config(text="Generate")
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
         self.is_locked = False  # Reset the lock for the new game
         self.start_time = datetime.now()  # Reset the timer for the new game
         self.draw_board()
+
+    def on_dimensions_change(self, value):
+        # Mark that dimensions changed
+        self.dimensions_changed = True
+        # Update Generate button text
+        self.generate_button.config(text="Generate (CLICK TO UPDATE)")
 
     def generate_solvable(self):
         # Reset timer and game state only for a new game
@@ -294,7 +309,7 @@ class SlidingPuzzle:
         self.draw_board()
         self.move_count = 0
         self.moves_label.config(text=f"Moves: {self.move_count}")
-        self.enable_all_buttons
+        self.enable_all_buttons()
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
         self.is_locked = False  # Reset the lock for the new game
         self.start_time = datetime.now()  # Reset the timer for the new game
@@ -908,13 +923,13 @@ class SlidingPuzzle:
             # abort
             if self.abort_solver or moves is None:
                 info("Solver aborted")
-                self.parent.after(0, self.enable_all_buttons)
+                self.parent.after(0, self.enable_all_buttons())
             else:
                 info("Solver finished")
                 self.parent.after(0, lambda: self.animate_solution(moves))
         except Exception as e:
             error("Solver crashed: %s", e)
-            self.parent.after(0, self.enable_all_buttons)
+            self.parent.after(0, self.enable_all_buttons())
 
     def animate_solution(self, moves):
         if not moves or self.abort_solver:

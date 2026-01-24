@@ -141,8 +141,12 @@ class SlidingPuzzle:
         self.height_slider.set(self.height)
         self.height_slider.grid(row=1, column=1)
 
-        tk.Button(control_frame, text="Generate", command=self.generate_random).grid(row=2, column=0, columnspan=2,
-                                                                                     sticky="ew", padx=5)
+
+        self.dimensions_changed = False  # Flag to track unsaved changes
+        self.width_slider.config(command=self.on_dimensions_change)
+        self.height_slider.config(command=self.on_dimensions_change)
+        self.generate_button = tk.Button(control_frame, text="Generate", command=self.generate_random)
+        self.generate_button.grid(row=2, column=0, columnspan=2, sticky="ew", padx=5)
         ttk.Separator(control_frame, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky="ew", pady=5)
 
         bottom_frame = tk.Frame(self.frame)
@@ -213,7 +217,8 @@ class SlidingPuzzle:
         # RESET FLAGS AND TIMER
         self.is_locked = False
         self.start_time = datetime.now()
-
+        self.dimensions_changed = False
+        self.generate_button.config(text="Generate")
         self.board = [nums[i * self.width:(i + 1) * self.width] for i in range(self.height)]
         self.save_state()
         self.draw_board()
@@ -221,6 +226,12 @@ class SlidingPuzzle:
         self.moves_label.config(text="Moves: 0")
         self.timer_label.config(text="Time: 0.0s")
         info("Puzzle generated (width=%d, height=%d)", self.width, self.height)
+
+    def on_dimensions_change(self, value):
+        # Mark that dimensions changed
+        self.dimensions_changed = True
+        # Update Generate button text
+        self.generate_button.config(text="Generate (CLICK TO UPDATE)")
 
     def generate_solvable(self):
         self.width = self.width_slider.get()
